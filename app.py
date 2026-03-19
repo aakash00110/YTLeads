@@ -55,7 +55,8 @@ with st.sidebar:
     st.markdown("1. Enter your API Key above.\n2. Use **Step 1** to search by ICP or upload your own URLs.\n3. Use **Step 2** to manually solve CAPTCHAs for hidden emails.")
 
 # Check for API Key
-api_key = os.environ.get("YOUTUBE_API_KEY")
+# Make sure we get it from Streamlit's sidebar input if provided, otherwise fallback to env
+api_key = os.environ.get("YOUTUBE_API_KEY", "")
 
 # Create tabs for the two steps
 tab1, tab2 = st.tabs(["Step 1: Get Leads (API)", "Step 2: Scrape Hidden Emails (Bot)"])
@@ -74,7 +75,8 @@ with tab1:
             max_results = st.number_input("Max Results", min_value=1, max_value=1000, value=50, help="YouTube Search API supports fetching up to ~500-1000 results per query via pagination.")
             
         if st.button("Start Search"):
-            if not api_key:
+            current_api_key = os.environ.get("YOUTUBE_API_KEY", "")
+            if not current_api_key:
                 st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
             elif not query:
                 st.warning("Please enter a search query.")
@@ -85,7 +87,7 @@ with tab1:
                     sys.stdout = mystdout = io.StringIO()
                     
                     try:
-                        get_channel_leads(api_key, query=query, max_results=max_results, output_file=output_filename)
+                        get_channel_leads(current_api_key, query=query, max_results=max_results, output_file=output_filename)
                         sys.stdout = old_stdout
                         
                         if os.path.exists(output_filename):
@@ -110,58 +112,64 @@ with tab1:
                         
     else:
         st.markdown("Upload a `.txt` or `.csv` file containing YouTube channel URLs. If using CSV, the script will automatically find any column containing YouTube links.")
-        uploaded_file = st.file_uploader("Upload URLs file", type=['txt', 'csv'])
         
-        if st.button("Process Uploaded URLs"):
-            if not api_key:
-                st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
-            elif not uploaded_file:
-                st.warning("Please upload a file first.")
-            else:
-                with st.spinner("Processing your URLs..."):
-                    # Save uploaded file to temp with correct extension
-                    file_ext = '.csv' if uploaded_file.name.endswith('.csv') else '.txt'
-                    
-                    # Create a persistent temporary file that won't be deleted immediately by the OS
-                    tmp_dir = os.path.join(os.getcwd(), "temp_uploads")
-                    os.makedirs(tmp_dir, exist_ok=True)
-                    tmp_path = os.path.join(tmp_dir, f"uploaded_list{file_ext}")
-                    
-                    with open(tmp_path, 'wb') as tmp:
-                        tmp.write(uploaded_file.getvalue())
+        with st.form("upload_form"):
+            uploaded_file = st.file_uploader("Upload URLs file", type=['txt', 'csv'])
+            submit_button = st.form_submit_button("Process Uploaded URLs")
+            
+            if submit_button:
+                # Get the latest api_key from the sidebar input
+                current_api_key = os.environ.get("YOUTUBE_API_KEY", "")
+                if not current_api_key:
+                    st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
+                elif uploaded_file is None:
+                    st.warning("Please upload a file first.")
+                else:
+                    with st.spinner("Processing your URLs..."):
+                        # Save uploaded file to temp with correct extension
+                        file_ext = '.csv' if uploaded_file.name.endswith('.csv') else '.txt'
                         
-                    output_filename = "leads.csv"
-                    old_stdout = sys.stdout
-                    sys.stdout = mystdout = io.StringIO()
-                    
-                    try:
-                        get_channel_leads(api_key, input_file=tmp_path, output_file=output_filename)
-                        sys.stdout = old_stdout
-                        os.unlink(tmp_path) # Clean up temp file
+                        # Create a persistent temporary file that won't be deleted immediately by the OS
+                        tmp_dir = os.path.join(os.getcwd(), "temp_uploads")
+                        os.makedirs(tmp_dir, exist_ok=True)
+                        tmp_path = os.path.join(tmp_dir, f"uploaded_list{file_ext}")
                         
-                        output_logs = mystdout.getvalue()
-                        
-                        if os.path.exists(output_filename):
-                            df = pd.read_csv(output_filename)
-                            st.success(f"✅ Successfully processed {len(df)} uploaded leads!")
-                            st.text("Extraction Logs:")
-                            st.code(output_logs)
-                            st.dataframe(df, use_container_width=True)
+                        with open(tmp_path, 'wb') as tmp:
+                            tmp.write(uploaded_file.getvalue())
                             
-                            with open(output_filename, "rb") as file:
-                                st.download_button(
-                                    label="⬇️ Download Leads CSV",
-                                    data=file,
-                                    file_name="youtube_custom_leads.csv",
-                                    mime="text/csv",
-                                )
-                        else:
-                            st.warning("No leads found or error occurred.")
-                            st.text(mystdout.getvalue())
+                        output_filename = "leads.csv"
+                        old_stdout = sys.stdout
+                        sys.stdout = mystdout = io.StringIO()
+                        
+                        try:
+                            # Pass current_api_key explicitly instead of the globally scoped api_key
+                            get_channel_leads(current_api_key, input_file=tmp_path, output_file=output_filename)
+                            sys.stdout = old_stdout
+                            os.unlink(tmp_path) # Clean up temp file
                             
-                    except Exception as e:
-                        sys.stdout = old_stdout
-                        st.error(f"An error occurred: {e}")
+                            output_logs = mystdout.getvalue()
+                            
+                            if os.path.exists(output_filename):
+                                df = pd.read_csv(output_filename)
+                                st.success(f"✅ Successfully processed {len(df)} uploaded leads!")
+                                st.text("Extraction Logs:")
+                                st.code(output_logs)
+                                st.dataframe(df, use_container_width=True)
+                                
+                                with open(output_filename, "rb") as file:
+                                    st.download_button(
+                                        label="⬇️ Download Leads CSV",
+                                        data=file,
+                                        file_name="youtube_custom_leads.csv",
+                                        mime="text/csv",
+                                    )
+                            else:
+                                st.warning("No leads found or error occurred.")
+                                st.text(mystdout.getvalue())
+                                
+                        except Exception as e:
+                            sys.stdout = old_stdout
+                            st.error(f"An error occurred: {e}")
 
 with tab2:
     st.header("🤖 Scrape Hidden Emails (CAPTCHA Solver)")
