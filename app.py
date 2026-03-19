@@ -46,17 +46,16 @@ st.markdown('<p class="sub-header">Find leads based on your ICP and extract thei
 # Sidebar for Settings
 with st.sidebar:
     st.header("⚙️ Settings")
-    api_key_input = st.text_input("YouTube Data API v3 Key", type="password", help="Get this from Google Cloud Console", value=os.environ.get("YOUTUBE_API_KEY", ""))
+    api_key_input = st.text_input("YouTube Data API v3 Key", type="password", help="Get this from Google Cloud Console", value=st.session_state.get("api_key", ""))
     if api_key_input:
-        os.environ["YOUTUBE_API_KEY"] = api_key_input
+        st.session_state["api_key"] = api_key_input
         
     st.markdown("---")
     st.markdown("### How to use:")
     st.markdown("1. Enter your API Key above.\n2. Use **Step 1** to search by ICP or upload your own URLs.\n3. Use **Step 2** to manually solve CAPTCHAs for hidden emails.")
 
 # Check for API Key
-# Make sure we get it from Streamlit's sidebar input if provided, otherwise fallback to env
-api_key = os.environ.get("YOUTUBE_API_KEY", "")
+api_key = st.session_state.get("api_key", "")
 
 # Create tabs for the two steps
 tab1, tab2 = st.tabs(["Step 1: Get Leads (API)", "Step 2: Scrape Hidden Emails (Bot)"])
@@ -75,7 +74,7 @@ with tab1:
             max_results = st.number_input("Max Results", min_value=1, max_value=1000, value=50, help="YouTube Search API supports fetching up to ~500-1000 results per query via pagination.")
             
         if st.button("Start Search"):
-            current_api_key = os.environ.get("YOUTUBE_API_KEY", "")
+            current_api_key = st.session_state.get("api_key", "")
             if not current_api_key:
                 st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
             elif not query:
@@ -119,7 +118,7 @@ with tab1:
             
             if submit_button:
                 # Get the latest api_key from the sidebar input
-                current_api_key = os.environ.get("YOUTUBE_API_KEY", "")
+                current_api_key = st.session_state.get("api_key", "")
                 if not current_api_key:
                     st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
                 elif uploaded_file is None:
