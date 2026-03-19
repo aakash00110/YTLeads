@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv/
+temp_uploads/
+leads.csv
+leads_updated.csv
+youtube_custom_leads.csv
+urls.txt
+.DS_Store
