@@ -3,18 +3,16 @@ import time
 import argparse
 import sys
 import urllib.parse as urlparse
+import shutil
 
-try:
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.service import Service
-    from webdriver_manager.chrome import ChromeDriverManager
-    import undetected_chromedriver as uc
-except ImportError:
-    print("Please install required packages first: pip install selenium webdriver-manager undetected-chromedriver")
-    sys.exit(1)
+# Remove the try/except block so we can see EXACTLY which package is failing to import in the logs
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+import undetected_chromedriver as uc
 
 def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None, capsolver_key=None):
     # Read existing leads
@@ -46,8 +44,6 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
     # Initialize Chrome
-    import shutil
-    
     options = uc.ChromeOptions()
     
     # Check if we are running with an auto-captcha key. 
