@@ -206,11 +206,13 @@ with tab2:
                 anticaptcha_key = st.session_state.get("anticaptcha_key", "") if captcha_service == "Anti-Captcha" else ""
                 
                 if twocaptcha_key or anticaptcha_key:
-                    st.info(f"🤖 {captcha_service} API Key detected! Auto-solving CAPTCHAs. Please do not close the Chrome window.")
+                    st.info(f"🤖 {captcha_service} API Key detected! Running invisibly in the background to auto-solve CAPTCHAs. Please wait...")
+                    spinner_text = "Bot is running invisibly in the background... Please wait!"
                 else:
-                    st.info("💡 No Auto-CAPTCHA API Key provided. A Chrome window will open, please solve the CAPTCHA manually when prompted.")
+                    st.info("💡 No Auto-CAPTCHA API Key provided. A physical Chrome window will pop up shortly. Please solve the CAPTCHA manually when prompted.")
+                    spinner_text = "Bot is launching... Check your computer for the Chrome window!"
                 
-                with st.spinner("Bot is running... Check the Chrome window!"):
+                with st.spinner(spinner_text):
                     try:
                         cmd = [sys.executable, "scrape_missing_emails.py"]
                         if twocaptcha_key:

@@ -43,8 +43,14 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     # Initialize Chrome
     options = webdriver.ChromeOptions()
     
-    # Add headless options to allow running on Streamlit Cloud (Linux servers without displays)
-    options.add_argument('--headless=new')
+    # Check if we are running with an auto-captcha key. 
+    # If YES, we can safely run headless (invisible mode). 
+    # If NO, we MUST run visibly so the user can click the CAPTCHA.
+    is_headless = bool(twocaptcha_key or anticaptcha_key)
+    
+    if is_headless:
+        options.add_argument('--headless=new')
+        
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
