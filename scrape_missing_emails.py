@@ -41,6 +41,9 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
     # Initialize Chrome
+    from selenium.webdriver.chrome.service import Service
+    import shutil
+    
     options = webdriver.ChromeOptions()
     
     # Check if we are running with an auto-captcha key. 
@@ -57,8 +60,17 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
+    # Check if we're on Streamlit Cloud (Linux)
+    if sys.platform.startswith('linux'):
+        # Streamlit Cloud installs these via packages.txt
+        chromium_path = shutil.which("chromium") or shutil.which("chromium-browser")
+        if chromium_path:
+            options.binary_location = chromium_path
+    
     try:
-        driver = webdriver.Chrome(options=options)
+        # Use Service to let Selenium automatically find the right driver
+        service = Service()
+        driver = webdriver.Chrome(service=service, options=options)
     except Exception as e:
         print(f"Failed to start Chrome driver: {e}")
         print("If running on Streamlit Cloud, make sure packages.txt is configured with chromium and chromium-driver.")
