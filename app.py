@@ -45,6 +45,18 @@ st.markdown('<p class="sub-header">Find leads based on your ICP and extract thei
 
 is_streamlit_cloud = os.environ.get("HOME", "").startswith("/home/adminuser") or "streamlit" in os.environ.get("SERVER_SOFTWARE", "").lower()
 
+def run_email_reveal_bot(captcha_service, twocaptcha_key="", anticaptcha_key="", capsolver_key="", input_csv="leads.csv", output_csv="leads_updated.csv"):
+    cmd = [sys.executable, "scrape_missing_emails.py", "--input", input_csv, "--output", output_csv]
+    if captcha_service == "2Captcha" and twocaptcha_key:
+        cmd.extend(["--twocaptcha", twocaptcha_key])
+    elif captcha_service == "Anti-Captcha" and anticaptcha_key:
+        cmd.extend(["--anticaptcha", anticaptcha_key])
+    elif captcha_service == "CapSolver" and capsolver_key:
+        cmd.extend(["--capsolver", capsolver_key])
+    else:
+        raise Exception("No Auto-CAPTCHA API key provided for the selected service.")
+    return cmd
+
 # Sidebar for Settings
 with st.sidebar:
     st.header("⚙️ Settings")
@@ -119,6 +131,8 @@ with tab1:
             crawl_links = st.checkbox("Crawl Links", value=True, help="Fetch external links and scan for emails.")
         with adv3:
             crawl_max_urls = st.number_input("Max Link Fetches", min_value=0, max_value=10, value=3, help="Max external pages fetched per channel.")
+
+        auto_reveal = st.checkbox("Captcha Priority (Auto Reveal Emails)", value=False, help="After Step 1 finishes, automatically run the email reveal bot for remaining Not Found emails.")
             
         if st.button("Start Search"):
             current_api_key = st.session_state.get("api_key", "")
@@ -148,6 +162,43 @@ with tab1:
                             df = pd.read_csv(output_filename)
                             st.success(f"✅ Successfully found and processed {len(df)} leads!")
                             st.dataframe(df, use_container_width=True)
+
+                            if auto_reveal:
+                                if is_streamlit_cloud:
+                                    st.error("Captcha Priority cannot run on Streamlit Cloud. Use localhost.")
+                                else:
+                                    twocaptcha_key = st.session_state.get("twocaptcha_key", "") if captcha_service == "2Captcha" else ""
+                                    anticaptcha_key = st.session_state.get("anticaptcha_key", "") if captcha_service == "Anti-Captcha" else ""
+                                    capsolver_key = st.session_state.get("capsolver_key", "") if captcha_service == "CapSolver" else ""
+                                    with st.spinner("Running CAPTCHA email reveal for missing emails..."):
+                                        cmd = run_email_reveal_bot(
+                                            captcha_service,
+                                            twocaptcha_key=twocaptcha_key,
+                                            anticaptcha_key=anticaptcha_key,
+                                            capsolver_key=capsolver_key,
+                                            input_csv=output_filename,
+                                            output_csv="leads_updated.csv",
+                                        )
+                                        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                                        log_placeholder = st.empty()
+                                        logs = []
+                                        for line in process.stdout:
+                                            logs.append(line.strip())
+                                            if len(logs) > 12:
+                                                logs.pop(0)
+                                            log_placeholder.code("\n".join(logs))
+                                        process.wait()
+                                        if os.path.exists("leads_updated.csv"):
+                                            df_updated = pd.read_csv("leads_updated.csv")
+                                            st.success("✅ Auto reveal finished. Updated results:")
+                                            st.dataframe(df_updated, use_container_width=True)
+                                            with open("leads_updated.csv", "rb") as file:
+                                                st.download_button(
+                                                    label="⬇️ Download Updated Leads CSV",
+                                                    data=file,
+                                                    file_name="youtube_leads_updated.csv",
+                                                    mime="text/csv",
+                                                )
                             
                             with open(output_filename, "rb") as file:
                                 st.download_button(
@@ -178,6 +229,8 @@ with tab1:
             crawl_links_upload = st.checkbox("Crawl Links (Upload)", value=True, help="Fetch external links and scan for emails.", key="crawl_links_upload")
         with adv3:
             crawl_max_urls_upload = st.number_input("Max Link Fetches (Upload)", min_value=0, max_value=10, value=3, help="Max external pages fetched per channel.", key="crawl_max_urls_upload")
+
+        auto_reveal_upload = st.checkbox("Captcha Priority (Auto Reveal Emails) (Upload)", value=False, help="After processing upload, automatically run email reveal for missing emails.", key="auto_reveal_upload")
             
         if submit_button:
             # Get the latest api_key from the sidebar input
@@ -221,6 +274,43 @@ with tab1:
                             st.text("Extraction Logs:")
                             st.code(output_logs)
                             st.dataframe(df, use_container_width=True)
+
+                            if auto_reveal_upload:
+                                if is_streamlit_cloud:
+                                    st.error("Captcha Priority cannot run on Streamlit Cloud. Use localhost.")
+                                else:
+                                    twocaptcha_key = st.session_state.get("twocaptcha_key", "") if captcha_service == "2Captcha" else ""
+                                    anticaptcha_key = st.session_state.get("anticaptcha_key", "") if captcha_service == "Anti-Captcha" else ""
+                                    capsolver_key = st.session_state.get("capsolver_key", "") if captcha_service == "CapSolver" else ""
+                                    with st.spinner("Running CAPTCHA email reveal for missing emails..."):
+                                        cmd = run_email_reveal_bot(
+                                            captcha_service,
+                                            twocaptcha_key=twocaptcha_key,
+                                            anticaptcha_key=anticaptcha_key,
+                                            capsolver_key=capsolver_key,
+                                            input_csv=output_filename,
+                                            output_csv="leads_updated.csv",
+                                        )
+                                        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                                        log_placeholder = st.empty()
+                                        logs = []
+                                        for line in process.stdout:
+                                            logs.append(line.strip())
+                                            if len(logs) > 12:
+                                                logs.pop(0)
+                                            log_placeholder.code("\n".join(logs))
+                                        process.wait()
+                                        if os.path.exists("leads_updated.csv"):
+                                            df_updated = pd.read_csv("leads_updated.csv")
+                                            st.success("✅ Auto reveal finished. Updated results:")
+                                            st.dataframe(df_updated, use_container_width=True)
+                                            with open("leads_updated.csv", "rb") as file:
+                                                st.download_button(
+                                                    label="⬇️ Download Updated Leads CSV",
+                                                    data=file,
+                                                    file_name="youtube_custom_leads_updated.csv",
+                                                    mime="text/csv",
+                                                )
                             
                             with open(output_filename, "rb") as file:
                                 st.download_button(
