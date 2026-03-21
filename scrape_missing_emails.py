@@ -11,8 +11,9 @@ try:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.chrome.service import Service
     from webdriver_manager.chrome import ChromeDriverManager
+    import undetected_chromedriver as uc
 except ImportError:
-    print("Please install required packages first: pip install selenium webdriver-manager")
+    print("Please install required packages first: pip install selenium webdriver-manager undetected-chromedriver")
     sys.exit(1)
 
 def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None, capsolver_key=None):
@@ -47,7 +48,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     # Initialize Chrome
     import shutil
     
-    options = webdriver.ChromeOptions()
+    options = uc.ChromeOptions()
     
     # Check if we are running with an auto-captcha key. 
     # If YES, we can safely run headless (invisible mode). 
@@ -71,9 +72,8 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             options.binary_location = chromium_path
     
     try:
-        # Use webdriver-manager to automatically download and match the correct driver version
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        # Use undetected_chromedriver which handles headless/cloud environments much better
+        driver = uc.Chrome(options=options, driver_executable_path=ChromeDriverManager().install())
     except Exception as e:
         print(f"Failed to start Chrome driver: {e}")
         print("If running on Streamlit Cloud, make sure packages.txt is configured with chromium and chromium-driver.")

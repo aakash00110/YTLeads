@@ -6,3 +6,4 @@ pandas
 anticaptchaofficial
 webdriver-manager
 capsolver
+undetected-chromedriver
