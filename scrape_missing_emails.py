@@ -15,7 +15,7 @@ except ImportError:
     print("Please install required packages first: pip install selenium webdriver-manager")
     sys.exit(1)
 
-def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None):
+def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None, capsolver_key=None):
     # Read existing leads
     leads = []
     try:
@@ -39,6 +39,8 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print("Starting browser... 2Captcha API key provided. Will attempt to solve CAPTCHAs automatically.")
     elif anticaptcha_key:
         print("Starting browser... Anti-Captcha API key provided. Will attempt to solve CAPTCHAs automatically.")
+    elif capsolver_key:
+        print("Starting browser... CapSolver API key provided. Will attempt to solve CAPTCHAs automatically.")
     else:
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
@@ -50,7 +52,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     # Check if we are running with an auto-captcha key. 
     # If YES, we can safely run headless (invisible mode). 
     # If NO, we MUST run visibly so the user can click the CAPTCHA.
-    is_headless = bool(twocaptcha_key or anticaptcha_key)
+    is_headless = bool(twocaptcha_key or anticaptcha_key or capsolver_key)
     
     if is_headless:
         options.add_argument('--headless=new')
@@ -93,7 +95,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             view_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, btn_xpath)))
             view_btn.click()
             
-            if twocaptcha_key or anticaptcha_key:
+            if twocaptcha_key or anticaptcha_key or capsolver_key:
                 print("Clicked 'View email address'. Waiting for reCAPTCHA to appear...")
                 try:
                     # Wait for the reCAPTCHA iframe to appear
@@ -126,6 +128,19 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                             token = solver.solve_and_return_solution()
                             if token == 0:
                                 raise Exception(f"Anti-Captcha failed: {solver.error_code}")
+                        
+                        elif capsolver_key:
+                            print("Sending CAPTCHA to CapSolver for solving (this takes 15-45 seconds)...")
+                            import capsolver
+                            capsolver.api_key = capsolver_key
+                            solution = capsolver.solve({
+                                "type": "ReCaptchaV2TaskProxyless",
+                                "websiteURL": driver.current_url,
+                                "websiteKey": sitekey
+                            })
+                            token = solution.get('gRecaptchaResponse')
+                            if not token:
+                                raise Exception("CapSolver failed to return a token")
                                 
                         print("Solved! Injecting token and clicking submit...")
                         
@@ -175,6 +190,7 @@ if __name__ == '__main__':
     parser.add_argument("--output", "-o", default="leads_updated.csv", help="Output CSV file to save updated emails")
     parser.add_argument("--twocaptcha", help="2Captcha API key for automated solving")
     parser.add_argument("--anticaptcha", help="Anti-Captcha API key for automated solving")
+    parser.add_argument("--capsolver", help="CapSolver API key for automated solving")
     args = parser.parse_args()
     
-    scrape_captcha_emails(args.input, args.output, args.twocaptcha, args.anticaptcha)
+    scrape_captcha_emails(args.input, args.output, args.twocaptcha, args.anticaptcha, args.capsolver)

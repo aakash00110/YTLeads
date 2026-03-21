@@ -52,7 +52,7 @@ with st.sidebar:
         
     st.markdown("---")
     st.markdown("### Auto-CAPTCHA Settings")
-    captcha_service = st.selectbox("CAPTCHA Service", ["Anti-Captcha", "2Captcha", "None (Manual)"], index=0)
+    captcha_service = st.selectbox("CAPTCHA Service", ["CapSolver", "Anti-Captcha", "2Captcha", "None (Manual)"], index=0)
     
     if captcha_service == "2Captcha":
         twocaptcha_key_input = st.text_input("2Captcha API Key", type="password", help="Get it from 2captcha.com", value=st.session_state.get("twocaptcha_key", ""))
@@ -62,6 +62,10 @@ with st.sidebar:
         anticaptcha_key_input = st.text_input("Anti-Captcha API Key", type="password", help="Get it from anti-captcha.com", value=st.session_state.get("anticaptcha_key", ""))
         if anticaptcha_key_input:
             st.session_state["anticaptcha_key"] = anticaptcha_key_input
+    elif captcha_service == "CapSolver":
+        capsolver_key_input = st.text_input("CapSolver API Key", type="password", help="Get it from capsolver.com", value=st.session_state.get("capsolver_key", ""))
+        if capsolver_key_input:
+            st.session_state["capsolver_key"] = capsolver_key_input
         
     st.markdown("---")
     st.markdown("### How to use:")
@@ -204,8 +208,9 @@ with tab2:
                 
                 twocaptcha_key = st.session_state.get("twocaptcha_key", "") if captcha_service == "2Captcha" else ""
                 anticaptcha_key = st.session_state.get("anticaptcha_key", "") if captcha_service == "Anti-Captcha" else ""
+                capsolver_key = st.session_state.get("capsolver_key", "") if captcha_service == "CapSolver" else ""
                 
-                if twocaptcha_key or anticaptcha_key:
+                if twocaptcha_key or anticaptcha_key or capsolver_key:
                     st.info(f"🤖 {captcha_service} API Key detected! Running invisibly in the background to auto-solve CAPTCHAs. Please wait...")
                     spinner_text = "Bot is running invisibly in the background... Please wait!"
                 else:
@@ -225,6 +230,8 @@ with tab2:
                             cmd.extend(["--twocaptcha", twocaptcha_key])
                         elif anticaptcha_key:
                             cmd.extend(["--anticaptcha", anticaptcha_key])
+                        elif capsolver_key:
+                            cmd.extend(["--capsolver", capsolver_key])
                             
                         process = subprocess.Popen(
                             cmd,
