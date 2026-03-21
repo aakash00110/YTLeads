@@ -48,7 +48,12 @@ is_streamlit_cloud = os.environ.get("HOME", "").startswith("/home/adminuser") or
 # Sidebar for Settings
 with st.sidebar:
     st.header("⚙️ Settings")
-    api_key_input = st.text_input("YouTube Data API v3 Key", type="password", help="Get this from Google Cloud Console", value=st.session_state.get("api_key", ""))
+    api_key_input = st.text_input(
+        "YouTube Data API v3 Key",
+        type="password",
+        help="Get this from Google Cloud Console",
+        value=st.session_state.get("api_key", "") or os.environ.get("YOUTUBE_API_KEY", ""),
+    )
     if api_key_input:
         st.session_state["api_key"] = api_key_input
         
@@ -57,15 +62,30 @@ with st.sidebar:
     captcha_service = st.selectbox("CAPTCHA Service", ["CapSolver", "Anti-Captcha", "2Captcha", "None (Manual)"], index=0)
     
     if captcha_service == "2Captcha":
-        twocaptcha_key_input = st.text_input("2Captcha API Key", type="password", help="Get it from 2captcha.com", value=st.session_state.get("twocaptcha_key", ""))
+        twocaptcha_key_input = st.text_input(
+            "2Captcha API Key",
+            type="password",
+            help="Get it from 2captcha.com",
+            value=st.session_state.get("twocaptcha_key", "") or os.environ.get("TWOCAPTCHA_API_KEY", ""),
+        )
         if twocaptcha_key_input:
             st.session_state["twocaptcha_key"] = twocaptcha_key_input
     elif captcha_service == "Anti-Captcha":
-        anticaptcha_key_input = st.text_input("Anti-Captcha API Key", type="password", help="Get it from anti-captcha.com", value=st.session_state.get("anticaptcha_key", ""))
+        anticaptcha_key_input = st.text_input(
+            "Anti-Captcha API Key",
+            type="password",
+            help="Get it from anti-captcha.com",
+            value=st.session_state.get("anticaptcha_key", "") or os.environ.get("ANTICAPTCHA_API_KEY", ""),
+        )
         if anticaptcha_key_input:
             st.session_state["anticaptcha_key"] = anticaptcha_key_input
     elif captcha_service == "CapSolver":
-        capsolver_key_input = st.text_input("CapSolver API Key", type="password", help="Get it from capsolver.com", value=st.session_state.get("capsolver_key", ""))
+        capsolver_key_input = st.text_input(
+            "CapSolver API Key",
+            type="password",
+            help="Get it from capsolver.com",
+            value=st.session_state.get("capsolver_key", "") or os.environ.get("CAPSOLVER_API_KEY", ""),
+        )
         if capsolver_key_input:
             st.session_state["capsolver_key"] = capsolver_key_input
         

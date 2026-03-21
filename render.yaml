@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: ytleads
+    env: docker
+    autoDeploy: true
+    healthCheckPath: /
