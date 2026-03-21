@@ -52,7 +52,7 @@ with st.sidebar:
         
     st.markdown("---")
     st.markdown("### Auto-CAPTCHA Settings")
-    captcha_service = st.selectbox("CAPTCHA Service", ["None (Manual)", "2Captcha", "Anti-Captcha"], index=0)
+    captcha_service = st.selectbox("CAPTCHA Service", ["Anti-Captcha", "2Captcha", "None (Manual)"], index=0)
     
     if captcha_service == "2Captcha":
         twocaptcha_key_input = st.text_input("2Captcha API Key", type="password", help="Get it from 2captcha.com", value=st.session_state.get("twocaptcha_key", ""))
