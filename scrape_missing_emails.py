@@ -7,16 +7,128 @@ import urllib.parse as urlparse
 import shutil
 
 from selenium import webdriver
+import requests
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 import tempfile
 
-try:
-    from webdriver_manager.chrome import ChromeDriverManager
-except Exception:
-    ChromeDriverManager = None
+def solve_recaptcha_2captcha(api_key, sitekey, page_url):
+    submit = requests.post(
+        "https://2captcha.com/in.php",
+        data={
+            "key": api_key,
+            "method": "userrecaptcha",
+            "googlekey": sitekey,
+            "pageurl": page_url,
+            "json": 1,
+        },
+        timeout=60,
+    ).json()
+    if submit.get("status") != 1:
+        raise Exception(f"2Captcha submit failed: {submit}")
+    captcha_id = submit.get("request")
+    for _ in range(60):
+        time.sleep(5)
+        res = requests.get(
+            "https://2captcha.com/res.php",
+            params={"key": api_key, "action": "get", "id": captcha_id, "json": 1},
+            timeout=60,
+        ).json()
+        if res.get("status") == 1:
+            return res.get("request")
+        if res.get("request") not in ("CAPCHA_NOT_READY", "CAPTCHA_NOT_READY"):
+            raise Exception(f"2Captcha result failed: {res}")
+    raise Exception("2Captcha timed out waiting for solution")
+
+def solve_recaptcha_anticaptcha(client_key, sitekey, page_url):
+    create = requests.post(
+        "https://api.anti-captcha.com/createTask",
+        json={
+            "clientKey": client_key,
+            "task": {
+                "type": "RecaptchaV2TaskProxyless",
+                "websiteURL": page_url,
+                "websiteKey": sitekey,
+            },
+        },
+        timeout=60,
+    ).json()
+    if create.get("errorId") != 0:
+        raise Exception(f"Anti-Captcha createTask failed: {create}. If your balance is 0, add funds.")
+    task_id = create.get("taskId")
+    for _ in range(60):
+        time.sleep(5)
+        res = requests.post(
+            "https://api.anti-captcha.com/getTaskResult",
+            json={"clientKey": client_key, "taskId": task_id},
+            timeout=60,
+        ).json()
+        if res.get("errorId") != 0:
+            raise Exception(f"Anti-Captcha getTaskResult failed: {res}")
+        if res.get("status") == "ready":
+            token = (res.get("solution") or {}).get("gRecaptchaResponse")
+            if not token:
+                raise Exception(f"Anti-Captcha returned no token: {res}")
+            return token
+    raise Exception("Anti-Captcha timed out waiting for solution")
+
+def solve_recaptcha_capsolver(client_key, sitekey, page_url):
+    create = requests.post(
+        "https://api.capsolver.com/createTask",
+        json={
+            "clientKey": client_key,
+            "task": {
+                "type": "ReCaptchaV2TaskProxyLess",
+                "websiteURL": page_url,
+                "websiteKey": sitekey,
+            },
+        },
+        timeout=60,
+    ).json()
+    if create.get("errorId") not in (0, None):
+        raise Exception(f"CapSolver createTask failed: {create}. If your balance is 0, add funds.")
+    task_id = create.get("taskId")
+    if not task_id:
+        raise Exception(f"CapSolver createTask returned no taskId: {create}")
+    for _ in range(60):
+        time.sleep(5)
+        res = requests.post(
+            "https://api.capsolver.com/getTaskResult",
+            json={"clientKey": client_key, "taskId": task_id},
+            timeout=60,
+        ).json()
+        if res.get("errorId") not in (0, None):
+            raise Exception(f"CapSolver getTaskResult failed: {res}")
+        if res.get("status") == "ready":
+            token = (res.get("solution") or {}).get("gRecaptchaResponse")
+            if not token:
+                raise Exception(f"CapSolver returned no token: {res}")
+            return token
+    raise Exception("CapSolver timed out waiting for solution")
+
+def inject_recaptcha_token(driver, token):
+    driver.execute_script(
+        """
+        const token = arguments[0];
+        let el = document.getElementById('g-recaptcha-response');
+        if (!el) {
+          el = document.createElement('textarea');
+          el.id = 'g-recaptcha-response';
+          el.name = 'g-recaptcha-response';
+          el.style.width = '250px';
+          el.style.height = '40px';
+          el.style.display = 'none';
+          document.body.appendChild(el);
+        }
+        el.value = token;
+        el.innerHTML = token;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        """
+    , token)
 
 def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None, capsolver_key=None):
     leads = []
@@ -80,9 +192,6 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         if chromedriver_path:
             service = Service(chromedriver_path)
             driver = webdriver.Chrome(service=service, options=options)
-        elif ChromeDriverManager is not None:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
         else:
             driver = webdriver.Chrome(options=options)
     except Exception as e:
@@ -118,40 +227,18 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                     if sitekey:
                         if twocaptcha_key:
                             print("Sending CAPTCHA to 2Captcha for solving (this takes 15-45 seconds)...")
-                            from twocaptcha import TwoCaptcha
-                            solver = TwoCaptcha(twocaptcha_key)
-                            
-                            result = solver.recaptcha(sitekey=sitekey, url=driver.current_url)
-                            token = result['code']
+                            token = solve_recaptcha_2captcha(twocaptcha_key, sitekey, driver.current_url)
                         elif anticaptcha_key:
                             print("Sending CAPTCHA to Anti-Captcha for solving (this takes 15-45 seconds)...")
-                            from anticaptchaofficial.recaptchav2proxyless import recaptchaV2Proxyless
-                            solver = recaptchaV2Proxyless()
-                            solver.set_verbose(1)
-                            solver.set_key(anticaptcha_key)
-                            solver.set_website_url(driver.current_url)
-                            solver.set_website_key(sitekey)
-                            
-                            token = solver.solve_and_return_solution()
-                            if token == 0:
-                                raise Exception(f"Anti-Captcha failed: {solver.error_code}. If your balance is 0, add funds in Anti-Captcha.")
+                            token = solve_recaptcha_anticaptcha(anticaptcha_key, sitekey, driver.current_url)
                         
                         elif capsolver_key:
                             print("Sending CAPTCHA to CapSolver for solving (this takes 15-45 seconds)...")
-                            import capsolver
-                            capsolver.api_key = capsolver_key
-                            solution = capsolver.solve({
-                                "type": "ReCaptchaV2TaskProxyless",
-                                "websiteURL": driver.current_url,
-                                "websiteKey": sitekey
-                            })
-                            token = solution.get('gRecaptchaResponse')
-                            if not token:
-                                raise Exception("CapSolver failed to return a token")
+                            token = solve_recaptcha_capsolver(capsolver_key, sitekey, driver.current_url)
                                 
                         print("Solved! Injecting token and clicking submit...")
                         
-                        driver.execute_script(f'document.getElementById("g-recaptcha-response").innerHTML = "{token}";')
+                        inject_recaptcha_token(driver, token)
                         
                         submit_btn = WebDriverWait(driver, 5).until(
                             EC.element_to_be_clickable((By.XPATH, "//*[@id='submit-btn'] | //button[contains(., 'Submit')]"))
