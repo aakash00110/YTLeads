@@ -51,9 +51,17 @@ with st.sidebar:
         st.session_state["api_key"] = api_key_input
         
     st.markdown("---")
-    twocaptcha_key_input = st.text_input("2Captcha API Key (Optional)", type="password", help="For automated CAPTCHA solving. Get it from 2captcha.com", value=st.session_state.get("twocaptcha_key", ""))
-    if twocaptcha_key_input:
-        st.session_state["twocaptcha_key"] = twocaptcha_key_input
+    st.markdown("### Auto-CAPTCHA Settings")
+    captcha_service = st.selectbox("CAPTCHA Service", ["None (Manual)", "2Captcha", "Anti-Captcha"], index=0)
+    
+    if captcha_service == "2Captcha":
+        twocaptcha_key_input = st.text_input("2Captcha API Key", type="password", help="Get it from 2captcha.com", value=st.session_state.get("twocaptcha_key", ""))
+        if twocaptcha_key_input:
+            st.session_state["twocaptcha_key"] = twocaptcha_key_input
+    elif captcha_service == "Anti-Captcha":
+        anticaptcha_key_input = st.text_input("Anti-Captcha API Key", type="password", help="Get it from anti-captcha.com", value=st.session_state.get("anticaptcha_key", ""))
+        if anticaptcha_key_input:
+            st.session_state["anticaptcha_key"] = anticaptcha_key_input
         
     st.markdown("---")
     st.markdown("### How to use:")
@@ -179,7 +187,7 @@ with tab2:
     st.header("🤖 Scrape Hidden Emails (CAPTCHA Solver)")
     st.markdown("""
     If your `leads.csv` has channels with **"Not Found"** in the email column, this bot will open Chrome and click the "View email address" button. 
-    If you provided a **2Captcha API Key** in the sidebar, it will automatically solve the CAPTCHA for you! Otherwise, you will need to click it manually.
+    If you selected an **Auto-CAPTCHA Service** in the sidebar, it will automatically solve the CAPTCHA for you! Otherwise, you will need to click it manually.
     """)
     
     if st.button("Start Browser Bot"):
@@ -194,17 +202,21 @@ with tab2:
             else:
                 st.warning(f"Found {len(missing)} leads missing emails. Starting browser...")
                 
-                twocaptcha_key = st.session_state.get("twocaptcha_key", "")
-                if twocaptcha_key:
-                    st.info("🤖 2Captcha API Key detected! Auto-solving CAPTCHAs. Please do not close the Chrome window.")
+                twocaptcha_key = st.session_state.get("twocaptcha_key", "") if captcha_service == "2Captcha" else ""
+                anticaptcha_key = st.session_state.get("anticaptcha_key", "") if captcha_service == "Anti-Captcha" else ""
+                
+                if twocaptcha_key or anticaptcha_key:
+                    st.info(f"🤖 {captcha_service} API Key detected! Auto-solving CAPTCHAs. Please do not close the Chrome window.")
                 else:
-                    st.info("💡 No 2Captcha API Key provided. A Chrome window will open, please solve the CAPTCHA manually when prompted.")
+                    st.info("💡 No Auto-CAPTCHA API Key provided. A Chrome window will open, please solve the CAPTCHA manually when prompted.")
                 
                 with st.spinner("Bot is running... Check the Chrome window!"):
                     try:
                         cmd = [sys.executable, "scrape_missing_emails.py"]
                         if twocaptcha_key:
                             cmd.extend(["--twocaptcha", twocaptcha_key])
+                        elif anticaptcha_key:
+                            cmd.extend(["--anticaptcha", anticaptcha_key])
                             
                         process = subprocess.Popen(
                             cmd,

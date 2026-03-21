@@ -3,3 +3,4 @@ selenium
 streamlit
 pandas
 2captcha-python
+anticaptchaofficial

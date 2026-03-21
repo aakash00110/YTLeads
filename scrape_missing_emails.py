@@ -13,7 +13,7 @@ except ImportError:
     print("Please install selenium first: pip install selenium")
     sys.exit(1)
 
-def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None):
+def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None):
     # Read existing leads
     leads = []
     try:
@@ -35,6 +35,8 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None):
     print(f"Found {len(needs_email)} leads missing emails.")
     if twocaptcha_key:
         print("Starting browser... 2Captcha API key provided. Will attempt to solve CAPTCHAs automatically.")
+    elif anticaptcha_key:
+        print("Starting browser... Anti-Captcha API key provided. Will attempt to solve CAPTCHAs automatically.")
     else:
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
@@ -59,7 +61,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None):
             view_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, btn_xpath)))
             view_btn.click()
             
-            if twocaptcha_key:
+            if twocaptcha_key or anticaptcha_key:
                 print("Clicked 'View email address'. Waiting for reCAPTCHA to appear...")
                 try:
                     # Wait for the reCAPTCHA iframe to appear
@@ -73,12 +75,26 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None):
                     sitekey = urlparse.parse_qs(parsed.query).get('k', [None])[0]
                     
                     if sitekey:
-                        print("Sending CAPTCHA to 2Captcha for solving (this takes 15-45 seconds)...")
-                        from twocaptcha import TwoCaptcha
-                        solver = TwoCaptcha(twocaptcha_key)
-                        
-                        result = solver.recaptcha(sitekey=sitekey, url=driver.current_url)
-                        token = result['code']
+                        if twocaptcha_key:
+                            print("Sending CAPTCHA to 2Captcha for solving (this takes 15-45 seconds)...")
+                            from twocaptcha import TwoCaptcha
+                            solver = TwoCaptcha(twocaptcha_key)
+                            
+                            result = solver.recaptcha(sitekey=sitekey, url=driver.current_url)
+                            token = result['code']
+                        elif anticaptcha_key:
+                            print("Sending CAPTCHA to Anti-Captcha for solving (this takes 15-45 seconds)...")
+                            from anticaptchaofficial.recaptchav2proxyless import recaptchaV2Proxyless
+                            solver = recaptchaV2Proxyless()
+                            solver.set_verbose(1)
+                            solver.set_key(anticaptcha_key)
+                            solver.set_website_url(driver.current_url)
+                            solver.set_website_key(sitekey)
+                            
+                            token = solver.solve_and_return_solution()
+                            if token == 0:
+                                raise Exception(f"Anti-Captcha failed: {solver.error_code}")
+                                
                         print("Solved! Injecting token and clicking submit...")
                         
                         # Inject the token into the hidden recaptcha textarea
@@ -126,6 +142,7 @@ if __name__ == '__main__':
     parser.add_argument("--input", "-i", default="leads.csv", help="Input CSV file from the API extractor")
     parser.add_argument("--output", "-o", default="leads_updated.csv", help="Output CSV file to save updated emails")
     parser.add_argument("--twocaptcha", help="2Captcha API key for automated solving")
+    parser.add_argument("--anticaptcha", help="Anti-Captcha API key for automated solving")
     args = parser.parse_args()
     
-    scrape_captcha_emails(args.input, args.output, args.twocaptcha)
+    scrape_captcha_emails(args.input, args.output, args.twocaptcha, args.anticaptcha)
