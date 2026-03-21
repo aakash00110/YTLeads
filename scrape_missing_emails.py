@@ -2,20 +2,23 @@ import csv
 import time
 import argparse
 import sys
+import os
 import urllib.parse as urlparse
 import shutil
 
-# Remove the try/except block so we can see EXACTLY which package is failing to import in the logs
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-import undetected_chromedriver as uc
+import tempfile
+
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+except Exception:
+    ChromeDriverManager = None
 
 def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None, capsolver_key=None):
-    # Read existing leads
     leads = []
     try:
         with open(input_csv, 'r', encoding='utf-8') as f:
@@ -26,7 +29,6 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print(f"Error: Could not find input file '{input_csv}'")
         return
             
-    # Filter leads that need emails
     needs_email = [lead for lead in leads if lead.get('Emails Found') == 'Not Found' or not lead.get('Emails Found')]
     
     if not needs_email:
@@ -43,12 +45,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     else:
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
-    # Initialize Chrome
-    options = uc.ChromeOptions()
-    
-    # Check if we are running with an auto-captcha key. 
-    # If YES, we can safely run headless (invisible mode). 
-    # If NO, we MUST run visibly so the user can click the CAPTCHA.
+    options = webdriver.ChromeOptions()
     is_headless = bool(twocaptcha_key or anticaptcha_key or capsolver_key)
     
     if is_headless:
@@ -57,19 +54,37 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--disable-features=VizDisplayCompositor')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
-    # Check if we're on Streamlit Cloud (Linux)
-    if sys.platform.startswith('linux'):
-        # Streamlit Cloud installs these via packages.txt
-        chromium_path = shutil.which("chromium") or shutil.which("chromium-browser")
-        if chromium_path:
-            options.binary_location = chromium_path
-    
+    options.add_argument('--remote-debugging-port=9222')
+    user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
+    options.add_argument(f'--user-data-dir={user_data_dir}')
+
+    chromium_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
+    if chromium_path:
+        options.binary_location = chromium_path
+
+    chromedriver_candidates = [
+        shutil.which("chromedriver"),
+        "/usr/bin/chromedriver",
+        "/usr/lib/chromium/chromedriver",
+        "/usr/lib/chromium-browser/chromedriver",
+    ]
+    chromedriver_path = next((p for p in chromedriver_candidates if p and os.path.exists(p)), None)
+
     try:
-        # Use undetected_chromedriver which handles headless/cloud environments much better
-        driver = uc.Chrome(options=options, driver_executable_path=ChromeDriverManager().install())
+        if chromedriver_path:
+            service = Service(chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
+        elif ChromeDriverManager is not None:
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+        else:
+            driver = webdriver.Chrome(options=options)
     except Exception as e:
         print(f"Failed to start Chrome driver: {e}")
         print("If running on Streamlit Cloud, make sure packages.txt is configured with chromium and chromium-driver.")
@@ -82,11 +97,9 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             
         print(f"\nProcessing: {lead.get('Channel Name')} ({url})")
         driver.get(f"{url}/about")
-        time.sleep(3) # Wait for page load
+        time.sleep(3)
         
         try:
-            # YouTube's "View email address" button can vary in structure.
-            # Usually it's a button with text "View email address"
             btn_xpath = "//*[contains(text(), 'View email address')]"
             view_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, btn_xpath)))
             view_btn.click()
@@ -94,13 +107,11 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             if twocaptcha_key or anticaptcha_key or capsolver_key:
                 print("Clicked 'View email address'. Waiting for reCAPTCHA to appear...")
                 try:
-                    # Wait for the reCAPTCHA iframe to appear
                     iframe = WebDriverWait(driver, 10).until(
                         EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, 'recaptcha')]"))
                     )
                     src = iframe.get_attribute("src")
                     
-                    # Extract sitekey from the iframe URL
                     parsed = urlparse.urlparse(src)
                     sitekey = urlparse.parse_qs(parsed.query).get('k', [None])[0]
                     
@@ -123,7 +134,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                             
                             token = solver.solve_and_return_solution()
                             if token == 0:
-                                raise Exception(f"Anti-Captcha failed: {solver.error_code}")
+                                raise Exception(f"Anti-Captcha failed: {solver.error_code}. If your balance is 0, add funds in Anti-Captcha.")
                         
                         elif capsolver_key:
                             print("Sending CAPTCHA to CapSolver for solving (this takes 15-45 seconds)...")
@@ -140,10 +151,8 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                                 
                         print("Solved! Injecting token and clicking submit...")
                         
-                        # Inject the token into the hidden recaptcha textarea
                         driver.execute_script(f'document.getElementById("g-recaptcha-response").innerHTML = "{token}";')
                         
-                        # Find and click the Submit button that appears under the CAPTCHA
                         submit_btn = WebDriverWait(driver, 5).until(
                             EC.element_to_be_clickable((By.XPATH, "//*[@id='submit-btn'] | //button[contains(., 'Submit')]"))
                         )
@@ -155,7 +164,6 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             else:
                 print("Clicked 'View email address'. Please solve the CAPTCHA in the browser (you have 60 seconds)...")
             
-            # Wait for the email link (mailto:) to appear
             email_link = WebDriverWait(driver, 60).until(
                 EC.presence_of_element_located((By.XPATH, "//a[starts-with(@href, 'mailto:')]"))
             )
@@ -170,7 +178,6 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             
     driver.quit()
     
-    # Save updated leads
     if leads:
         keys = leads[0].keys()
         with open(output_csv, 'w', newline='', encoding='utf-8') as f:
