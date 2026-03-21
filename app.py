@@ -133,14 +133,14 @@ with tab1:
             uploaded_file = st.file_uploader("Upload URLs file", type=['txt', 'csv'])
             submit_button = st.form_submit_button("Process Uploaded URLs")
             
-            if submit_button:
-                # Get the latest api_key from the sidebar input
-                current_api_key = st.session_state.get("api_key", "")
-                if not current_api_key:
-                    st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
-                elif uploaded_file is None:
-                    st.warning("Please upload a file first.")
-                else:
+        if submit_button:
+            # Get the latest api_key from the sidebar input
+            current_api_key = st.session_state.get("api_key", "")
+            if not current_api_key:
+                st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
+            elif uploaded_file is None:
+                st.warning("Please upload a file first.")
+            else:
                     with st.spinner("Processing your URLs..."):
                         # Save uploaded file to temp with correct extension
                         file_ext = '.csv' if uploaded_file.name.endswith('.csv') else '.txt'
