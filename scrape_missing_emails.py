@@ -9,8 +9,10 @@ try:
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
 except ImportError:
-    print("Please install selenium first: pip install selenium")
+    print("Please install required packages first: pip install selenium webdriver-manager")
     sys.exit(1)
 
 def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None):
@@ -41,7 +43,6 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
     # Initialize Chrome
-    from selenium.webdriver.chrome.service import Service
     import shutil
     
     options = webdriver.ChromeOptions()
@@ -68,8 +69,8 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             options.binary_location = chromium_path
     
     try:
-        # Use Service to let Selenium automatically find the right driver
-        service = Service()
+        # Use webdriver-manager to automatically download and match the correct driver version
+        service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
     except Exception as e:
         print(f"Failed to start Chrome driver: {e}")

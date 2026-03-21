@@ -209,8 +209,14 @@ with tab2:
                     st.info(f"🤖 {captcha_service} API Key detected! Running invisibly in the background to auto-solve CAPTCHAs. Please wait...")
                     spinner_text = "Bot is running invisibly in the background... Please wait!"
                 else:
-                    st.info("💡 No Auto-CAPTCHA API Key provided. A physical Chrome window will pop up shortly. Please solve the CAPTCHA manually when prompted.")
-                    spinner_text = "Bot is launching... Check your computer for the Chrome window!"
+                    # BLOCK MANUAL MODE ON CLOUD
+                    if "streamlit" in os.environ.get("SERVER_SOFTWARE", "").lower() or sys.platform.startswith('linux'):
+                        st.error("❌ **Manual mode is blocked on Streamlit Cloud.**")
+                        st.warning("Because this app is running on a cloud server without a screen, it cannot physically pop open a Chrome window for you to click the CAPTCHA. \n\n**To use this website, you MUST select 'Anti-Captcha' or '2Captcha' in the sidebar and provide an API key.** \n\n*(If you want to use manual mode for free, you must run this code locally on your own Mac/PC).*")
+                        st.stop()
+                    else:
+                        st.info("💡 No Auto-CAPTCHA API Key provided. A physical Chrome window will pop up shortly. Please solve the CAPTCHA manually when prompted.")
+                        spinner_text = "Bot is launching... Check your computer for the Chrome window!"
                 
                 with st.spinner(spinner_text):
                     try:
