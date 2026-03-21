@@ -1,9 +1,9 @@
 google-api-python-client==2.122.0
-selenium
+selenium==4.36.0
 streamlit
 pandas
 2captcha-python
 anticaptchaofficial
 webdriver-manager
 capsolver
-undetected-chromedriver
+undetected-chromedriver==3.5.5
