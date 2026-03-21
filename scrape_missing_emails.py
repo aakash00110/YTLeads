@@ -2,6 +2,8 @@ import csv
 import time
 import argparse
 import sys
+import urllib.parse as urlparse
+
 try:
     from selenium import webdriver
     from selenium.webdriver.common.by import By
@@ -11,7 +13,7 @@ except ImportError:
     print("Please install selenium first: pip install selenium")
     sys.exit(1)
 
-def scrape_captcha_emails(input_csv, output_csv):
+def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None):
     # Read existing leads
     leads = []
     try:
@@ -31,7 +33,10 @@ def scrape_captcha_emails(input_csv, output_csv):
         return
 
     print(f"Found {len(needs_email)} leads missing emails.")
-    print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
+    if twocaptcha_key:
+        print("Starting browser... 2Captcha API key provided. Will attempt to solve CAPTCHAs automatically.")
+    else:
+        print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
     # Initialize Chrome
     options = webdriver.ChromeOptions()
@@ -53,7 +58,43 @@ def scrape_captcha_emails(input_csv, output_csv):
             btn_xpath = "//*[contains(text(), 'View email address')]"
             view_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, btn_xpath)))
             view_btn.click()
-            print("Clicked 'View email address'. Please solve the CAPTCHA in the browser (you have 60 seconds)...")
+            
+            if twocaptcha_key:
+                print("Clicked 'View email address'. Waiting for reCAPTCHA to appear...")
+                try:
+                    # Wait for the reCAPTCHA iframe to appear
+                    iframe = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, 'recaptcha')]"))
+                    )
+                    src = iframe.get_attribute("src")
+                    
+                    # Extract sitekey from the iframe URL
+                    parsed = urlparse.urlparse(src)
+                    sitekey = urlparse.parse_qs(parsed.query).get('k', [None])[0]
+                    
+                    if sitekey:
+                        print("Sending CAPTCHA to 2Captcha for solving (this takes 15-45 seconds)...")
+                        from twocaptcha import TwoCaptcha
+                        solver = TwoCaptcha(twocaptcha_key)
+                        
+                        result = solver.recaptcha(sitekey=sitekey, url=driver.current_url)
+                        token = result['code']
+                        print("Solved! Injecting token and clicking submit...")
+                        
+                        # Inject the token into the hidden recaptcha textarea
+                        driver.execute_script(f'document.getElementById("g-recaptcha-response").innerHTML = "{token}";')
+                        
+                        # Find and click the Submit button that appears under the CAPTCHA
+                        submit_btn = WebDriverWait(driver, 5).until(
+                            EC.element_to_be_clickable((By.XPATH, "//*[@id='submit-btn'] | //button[contains(., 'Submit')]"))
+                        )
+                        submit_btn.click()
+                    else:
+                        print("Could not find sitekey for auto-solve. Please solve manually.")
+                except Exception as e:
+                    print(f"Auto-solve failed ({e}). Falling back to manual solve. Please click the checkbox in the browser...")
+            else:
+                print("Clicked 'View email address'. Please solve the CAPTCHA in the browser (you have 60 seconds)...")
             
             # Wait for the email link (mailto:) to appear
             email_link = WebDriverWait(driver, 60).until(
@@ -84,6 +125,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Scrape hidden CAPTCHA emails for leads missing them.")
     parser.add_argument("--input", "-i", default="leads.csv", help="Input CSV file from the API extractor")
     parser.add_argument("--output", "-o", default="leads_updated.csv", help="Output CSV file to save updated emails")
+    parser.add_argument("--twocaptcha", help="2Captcha API key for automated solving")
     args = parser.parse_args()
     
-    scrape_captcha_emails(args.input, args.output)
+    scrape_captcha_emails(args.input, args.output, args.twocaptcha)
