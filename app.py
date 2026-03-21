@@ -43,6 +43,8 @@ st.markdown("""
 st.markdown('<p class="main-header">▶️ YouTube Lead Extractor</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-header">Find leads based on your ICP and extract their contact info.</p>', unsafe_allow_html=True)
 
+is_streamlit_cloud = os.environ.get("HOME", "").startswith("/home/adminuser") or "streamlit" in os.environ.get("SERVER_SOFTWARE", "").lower()
+
 # Sidebar for Settings
 with st.sidebar:
     st.header("⚙️ Settings")
@@ -141,60 +143,62 @@ with tab1:
             elif uploaded_file is None:
                 st.warning("Please upload a file first.")
             else:
-                    with st.spinner("Processing your URLs..."):
-                        # Save uploaded file to temp with correct extension
-                        file_ext = '.csv' if uploaded_file.name.endswith('.csv') else '.txt'
+                with st.spinner("Processing your URLs..."):
+                    file_ext = '.csv' if uploaded_file.name.endswith('.csv') else '.txt'
+                    
+                    tmp_dir = os.path.join(os.getcwd(), "temp_uploads")
+                    os.makedirs(tmp_dir, exist_ok=True)
+                    tmp_path = os.path.join(tmp_dir, f"uploaded_list{file_ext}")
+                    
+                    with open(tmp_path, 'wb') as tmp:
+                        tmp.write(uploaded_file.getvalue())
                         
-                        # Create a persistent temporary file that won't be deleted immediately by the OS
-                        tmp_dir = os.path.join(os.getcwd(), "temp_uploads")
-                        os.makedirs(tmp_dir, exist_ok=True)
-                        tmp_path = os.path.join(tmp_dir, f"uploaded_list{file_ext}")
+                    output_filename = "leads.csv"
+                    old_stdout = sys.stdout
+                    sys.stdout = mystdout = io.StringIO()
+                    
+                    try:
+                        get_channel_leads(current_api_key, input_file=tmp_path, output_file=output_filename)
+                        sys.stdout = old_stdout
+                        os.unlink(tmp_path)
                         
-                        with open(tmp_path, 'wb') as tmp:
-                            tmp.write(uploaded_file.getvalue())
-                            
-                        output_filename = "leads.csv"
-                        old_stdout = sys.stdout
-                        sys.stdout = mystdout = io.StringIO()
+                        output_logs = mystdout.getvalue()
                         
-                        try:
-                            # Pass current_api_key explicitly instead of the globally scoped api_key
-                            get_channel_leads(current_api_key, input_file=tmp_path, output_file=output_filename)
-                            sys.stdout = old_stdout
-                            os.unlink(tmp_path) # Clean up temp file
+                        if os.path.exists(output_filename):
+                            df = pd.read_csv(output_filename)
+                            st.success(f"✅ Successfully processed {len(df)} uploaded leads!")
+                            st.text("Extraction Logs:")
+                            st.code(output_logs)
+                            st.dataframe(df, use_container_width=True)
                             
-                            output_logs = mystdout.getvalue()
+                            with open(output_filename, "rb") as file:
+                                st.download_button(
+                                    label="⬇️ Download Leads CSV",
+                                    data=file,
+                                    file_name="youtube_custom_leads.csv",
+                                    mime="text/csv",
+                                )
+                        else:
+                            st.warning("No leads found or error occurred.")
+                            st.text(mystdout.getvalue())
                             
-                            if os.path.exists(output_filename):
-                                df = pd.read_csv(output_filename)
-                                st.success(f"✅ Successfully processed {len(df)} uploaded leads!")
-                                st.text("Extraction Logs:")
-                                st.code(output_logs)
-                                st.dataframe(df, use_container_width=True)
-                                
-                                with open(output_filename, "rb") as file:
-                                    st.download_button(
-                                        label="⬇️ Download Leads CSV",
-                                        data=file,
-                                        file_name="youtube_custom_leads.csv",
-                                        mime="text/csv",
-                                    )
-                            else:
-                                st.warning("No leads found or error occurred.")
-                                st.text(mystdout.getvalue())
-                                
-                        except Exception as e:
-                            sys.stdout = old_stdout
-                            st.error(f"An error occurred: {e}")
+                    except Exception as e:
+                        sys.stdout = old_stdout
+                        st.error(f"An error occurred: {e}")
 
 with tab2:
     st.header("🤖 Scrape Hidden Emails (CAPTCHA Solver)")
-    st.markdown("""
-    If your `leads.csv` has channels with **"Not Found"** in the email column, this bot will open Chrome and click the "View email address" button. 
-    If you selected an **Auto-CAPTCHA Service** in the sidebar, it will automatically solve the CAPTCHA for you! Otherwise, you will need to click it manually.
-    """)
+    if is_streamlit_cloud:
+        st.error("❌ Step 2 is disabled on Streamlit Cloud.")
+        st.warning("Streamlit Cloud currently fails to install a compatible Chromium build (apt dependency conflict). This is why you see errors like `libasound2t64` / broken packages.")
+        st.info("Use Step 2 by running the app locally on your computer (localhost), or deploy a separate Docker worker (Render/Railway/Fly) for the scraping bot.")
+    else:
+        st.markdown("""
+        If your `leads.csv` has channels with **"Not Found"** in the email column, this bot will open Chrome and click the "View email address" button. 
+        If you selected an **Auto-CAPTCHA Service** in the sidebar, it will automatically solve the CAPTCHA for you! Otherwise, you will need to click it manually.
+        """)
     
-    if st.button("Start Browser Bot"):
+    if (not is_streamlit_cloud) and st.button("Start Browser Bot"):
         if not os.path.exists("leads.csv"):
             st.error("⚠️ 'leads.csv' not found. Please run Step 1 first.")
         else:
