@@ -128,6 +128,32 @@ def _has_valid_email_field(value):
         return False
     return bool(EMAIL_REGEX.search(str(value)))
 
+def _normalize_channel_url(url):
+    if not url:
+        return ""
+    u = str(url).strip()
+    if not u:
+        return ""
+    if not u.startswith("http://") and not u.startswith("https://"):
+        u = "https://" + u
+    if "youtube.com" not in u and "youtu.be" not in u:
+        return u
+    parsed = urlparse.urlparse(u)
+    path = parsed.path or ""
+    if not path.endswith("/about"):
+        path = path.rstrip("/") + "/about"
+    rebuilt = urlparse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+    return rebuilt
+
+def _save_progress(output_csv, leads):
+    if not leads:
+        return
+    keys = leads[0].keys()
+    with open(output_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(leads)
+
 def _find_recaptcha_sitekey(driver):
     try:
         iframe = driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
@@ -251,76 +277,80 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print("If running on Streamlit Cloud, make sure packages.txt is configured with chromium and chromium-driver.")
         return
     
+    processed = 0
+    found_count = 0
+    failed_count = 0
+
     for lead in needs_email:
         url = lead.get('URL')
         if not url:
             continue
-            
-        print(f"\nProcessing: {lead.get('Channel Name')} ({url})")
-        try:
-            driver.get(f"{url}/about")
-            time.sleep(2)
-        except WebDriverException as nav_err:
-            print(f"Browser navigation failed ({nav_err}). Restarting browser and retrying this channel...")
+
+        target_url = _normalize_channel_url(url)
+        print(f"\nProcessing: {lead.get('Channel Name')} ({target_url})")
+        success = False
+
+        for attempt in range(1, 4):
             try:
-                driver.quit()
-            except Exception:
-                pass
-            try:
-                driver = start_driver()
-                driver.get(f"{url}/about")
+                driver.get(target_url)
                 time.sleep(2)
-            except Exception as retry_err:
-                print(f"Retry failed ({retry_err}). Skipping this channel.")
-                continue
-        
-        try:
-            driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(0.7)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(0.7)
-
-            view_btn = None
-            view_btn_xpaths = [
-                "//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
-                "//button//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]/ancestor::button[1]",
-                "//*[@aria-label and contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
-                "//*[@aria-label and contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'email')]",
-                "//button[.//*[name()='svg'] and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'email')]",
-            ]
-            for xp in view_btn_xpaths:
+            except WebDriverException as nav_err:
+                print(f"Navigation failed attempt {attempt} ({nav_err}). Restarting browser...")
                 try:
-                    view_btn = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((By.XPATH, xp)))
-                    break
+                    driver.quit()
                 except Exception:
-                    continue
-
-            if view_btn:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_btn)
-                time.sleep(0.4)
-                view_btn.click()
-            else:
-                print("View email button not found, checking if captcha is already visible.")
-            
-            if twocaptcha_key or anticaptcha_key or capsolver_key:
-                print("Clicked 'View email address'. Attempting auto-solve...")
+                    pass
                 try:
+                    driver = start_driver()
+                except Exception as restart_err:
+                    print(f"Browser restart failed ({restart_err}).")
+                    continue
+                continue
+
+            try:
+                existing_email = _wait_for_any_email(driver, timeout_s=3)
+                if existing_email:
+                    lead["Emails Found"] = existing_email
+                    success = True
+                    break
+
+                driver.execute_script("window.scrollTo(0, 0);")
+                time.sleep(0.7)
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(0.7)
+
+                view_btn = None
+                view_btn_xpaths = [
+                    "//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
+                    "//button//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]/ancestor::button[1]",
+                    "//*[@aria-label and contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
+                    "//*[@aria-label and contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'email')]",
+                    "//button[.//*[name()='svg'] and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'email')]",
+                ]
+                for xp in view_btn_xpaths:
+                    try:
+                        view_btn = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((By.XPATH, xp)))
+                        break
+                    except Exception:
+                        continue
+
+                if view_btn:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_btn)
+                    time.sleep(0.4)
+                    view_btn.click()
+                else:
+                    print("View email button not found, checking captcha/email visibility.")
+
+                if twocaptcha_key or anticaptcha_key or capsolver_key:
                     sitekey = _find_recaptcha_sitekey(driver)
-                    
                     if sitekey:
                         if twocaptcha_key:
-                            print("Sending CAPTCHA to 2Captcha...")
                             token = solve_recaptcha_2captcha(twocaptcha_key, sitekey, driver.current_url)
                         elif anticaptcha_key:
-                            print("Sending CAPTCHA to Anti-Captcha...")
                             token = solve_recaptcha_anticaptcha(anticaptcha_key, sitekey, driver.current_url)
-                        
-                        elif capsolver_key:
-                            print("Sending CAPTCHA to CapSolver...")
+                        else:
                             token = solve_recaptcha_capsolver(capsolver_key, sitekey, driver.current_url)
-                                
-                        print("Solved! Injecting token and clicking submit...")
-                        
+
                         inject_recaptcha_token(driver, token)
                         submit_btn = None
                         submit_xpaths = [
@@ -337,22 +367,36 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                                 continue
                         if submit_btn:
                             submit_btn.click()
-                    else:
-                        print("Could not find sitekey on this channel.")
-                except Exception as e:
-                    print(f"Auto-solve failed ({e}).")
-            else:
-                print("Clicked 'View email address'.")
-            
-            email = _wait_for_any_email(driver, timeout_s=60)
-            if email:
-                print(f"Success! Found email: {email}")
-                lead['Emails Found'] = email
-            else:
-                print("Email not found after reveal flow.")
-            
-        except Exception as e:
-            print(f"Could not extract email automatically for this channel. Skipping... ({e})")
+
+                email = _wait_for_any_email(driver, timeout_s=45)
+                if email:
+                    print(f"Success! Found email: {email}")
+                    lead["Emails Found"] = email
+                    success = True
+                    break
+
+                print(f"No email found on attempt {attempt}.")
+                time.sleep(1)
+
+            except Exception as e:
+                print(f"Attempt {attempt} failed ({e}).")
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                try:
+                    driver = start_driver()
+                except Exception:
+                    pass
+
+        processed += 1
+        if success:
+            found_count += 1
+        else:
+            failed_count += 1
+            print("Could not extract email automatically for this channel.")
+
+        _save_progress(output_csv, leads)
             
     try:
         driver.quit()
@@ -360,13 +404,9 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         pass
     
     if leads:
-        keys = leads[0].keys()
-        with open(output_csv, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader()
-            writer.writerows(leads)
-            
+        _save_progress(output_csv, leads)
         print(f"\nSaved updated leads to {output_csv}")
+        print(f"Processed: {processed} | Found: {found_count} | Not Found: {failed_count}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Scrape hidden CAPTCHA emails for leads missing them.")
