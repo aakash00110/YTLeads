@@ -19,6 +19,33 @@ import tempfile
 
 EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 
+def is_valid_email(email):
+    if not email or '@' not in email:
+        return False
+    if email.count('@') != 1:
+        return False
+    local, domain = email.rsplit('@', 1)
+    if not local or not domain:
+        return False
+    if '..' in local or '..' in domain:
+        return False
+    if local.startswith('.') or local.endswith('.'):
+        return False
+    labels = domain.split('.')
+    if len(labels) < 2:
+        return False
+    tld = labels[-1]
+    if not re.fullmatch(r'[A-Za-z]{2,24}', tld or ''):
+        return False
+    for label in labels:
+        if not label:
+            return False
+        if label.startswith('-') or label.endswith('-'):
+            return False
+        if not re.fullmatch(r'[A-Za-z0-9-]+', label):
+            return False
+    return True
+
 def solve_recaptcha_2captcha(api_key, sitekey, page_url):
     submit = requests.post(
         "https://2captcha.com/in.php",
@@ -119,14 +146,18 @@ def _extract_first_email(text):
     m = EMAIL_REGEX.search(text)
     if not m:
         return None
-    return m.group(0).strip().strip('.,;:()[]{}<>')
+    cand = m.group(0).strip().strip('.,;:()[]{}<>')
+    return cand if is_valid_email(cand) else None
 
 def _has_valid_email_field(value):
     if not value:
         return False
     if str(value).strip().lower() == "not found":
         return False
-    return bool(EMAIL_REGEX.search(str(value)))
+    for m in EMAIL_REGEX.findall(str(value)):
+        if is_valid_email(m):
+            return True
+    return False
 
 def _normalize_channel_url(url):
     if not url:
@@ -178,7 +209,7 @@ def _wait_for_any_email(driver, timeout_s=45):
             mailto = driver.find_element(By.XPATH, "//a[starts-with(@href, 'mailto:')]")
             href = mailto.get_attribute("href") or ""
             email = href.replace("mailto:", "").strip()
-            if email:
+            if email and is_valid_email(email):
                 return email
         except Exception:
             pass

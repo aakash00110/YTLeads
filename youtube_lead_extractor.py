@@ -15,6 +15,33 @@ URL_REGEX = r'(?:(?:https?://)|(?:www\.))[^\s<>\]\)"]+'
 OBF_AT = r'(?:\(|\[|\{)?\s*at\s*(?:\)|\]|\})?'
 OBF_DOT = r'(?:\(|\[|\{)?\s*dot\s*(?:\)|\]|\})?'
 
+def is_valid_email(email):
+    if not email or '@' not in email:
+        return False
+    if email.count('@') != 1:
+        return False
+    local, domain = email.rsplit('@', 1)
+    if not local or not domain:
+        return False
+    if '..' in local or '..' in domain:
+        return False
+    if local.startswith('.') or local.endswith('.'):
+        return False
+    labels = domain.split('.')
+    if len(labels) < 2:
+        return False
+    tld = labels[-1]
+    if not re.fullmatch(r'[A-Za-z]{2,24}', tld or ''):
+        return False
+    for label in labels:
+        if not label:
+            return False
+        if label.startswith('-') or label.endswith('-'):
+            return False
+        if not re.fullmatch(r'[A-Za-z0-9-]+', label):
+            return False
+    return True
+
 def _extract_obfuscated_emails(text):
     if not text:
         return []
@@ -46,11 +73,11 @@ def extract_emails(text):
     emails = set()
     for e in re.findall(EMAIL_REGEX, t):
         e = e.strip().strip('.,;:()[]{}<>')
-        if e:
+        if e and is_valid_email(e):
             emails.add(e)
     for e in _extract_obfuscated_emails(t):
         e = e.strip().strip('.,;:()[]{}<>')
-        if e:
+        if e and is_valid_email(e):
             emails.add(e)
     return sorted(emails)
 
@@ -78,6 +105,28 @@ def _is_youtube_domain(url):
         return False
     return host.endswith("youtube.com") or host.endswith("youtu.be") or host.endswith("music.youtube.com")
 
+def _extract_same_domain_links(base_url, html_text):
+    if not html_text:
+        return []
+    hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_text, flags=re.IGNORECASE)
+    parsed_base = urllib.parse.urlparse(base_url)
+    base_domain = parsed_base.netloc.lower()
+    candidates = []
+    for href in hrefs:
+        try:
+            full = urllib.parse.urljoin(base_url, href.strip())
+            p = urllib.parse.urlparse(full)
+            if p.scheme not in ("http", "https"):
+                continue
+            if p.netloc.lower() != base_domain:
+                continue
+            low = full.lower()
+            if any(k in low for k in ["/contact", "/about", "/reach", "/team", "/support", "/business"]):
+                candidates.append(full.split("#")[0])
+        except Exception:
+            continue
+    return sorted(set(candidates))
+
 def crawl_urls_for_emails(urls, max_urls=3, timeout_s=12, max_bytes=1_000_000):
     found = set()
     picked = [u for u in urls if not _is_youtube_domain(u)]
@@ -100,6 +149,17 @@ def crawl_urls_for_emails(urls, max_urls=3, timeout_s=12, max_bytes=1_000_000):
             text = content.decode(resp.encoding or "utf-8", errors="replace")
             for e in extract_emails(text):
                 found.add(e)
+
+            extra_links = _extract_same_domain_links(resp.url, text)[:3]
+            for ex in extra_links:
+                try:
+                    ex_resp = requests.get(ex, headers=headers, timeout=timeout_s)
+                    ex_resp.raise_for_status()
+                    ex_text = ex_resp.text or ""
+                    for e in extract_emails(ex_text):
+                        found.add(e)
+                except Exception:
+                    continue
         except Exception:
             continue
         time.sleep(0.5)
