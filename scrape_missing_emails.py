@@ -3,6 +3,7 @@ import time
 import argparse
 import sys
 import os
+import re
 import urllib.parse as urlparse
 import shutil
 
@@ -14,6 +15,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 import tempfile
+
+EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 
 def solve_recaptcha_2captcha(api_key, sitekey, page_url):
     submit = requests.post(
@@ -109,6 +112,45 @@ def solve_recaptcha_capsolver(client_key, sitekey, page_url):
             return token
     raise Exception("CapSolver timed out waiting for solution")
 
+def _extract_first_email(text):
+    if not text:
+        return None
+    m = EMAIL_REGEX.search(text)
+    if not m:
+        return None
+    return m.group(0).strip().strip('.,;:()[]{}<>')
+
+def _find_recaptcha_sitekey(driver):
+    try:
+        iframe = driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
+        src = iframe.get_attribute("src") or ""
+        parsed = urlparse.urlparse(src)
+        return urlparse.parse_qs(parsed.query).get("k", [None])[0]
+    except Exception:
+        pass
+    try:
+        el = driver.find_element(By.CSS_SELECTOR, "div.g-recaptcha[data-sitekey]")
+        return el.get_attribute("data-sitekey")
+    except Exception:
+        return None
+
+def _wait_for_any_email(driver, timeout_s=45):
+    end = time.time() + timeout_s
+    while time.time() < end:
+        email = _extract_first_email(driver.page_source)
+        if email:
+            return email
+        try:
+            mailto = driver.find_element(By.XPATH, "//a[starts-with(@href, 'mailto:')]")
+            href = mailto.get_attribute("href") or ""
+            email = href.replace("mailto:", "").strip()
+            if email:
+                return email
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return None
+
 def inject_recaptcha_token(driver, token):
     driver.execute_script(
         """
@@ -158,7 +200,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
     options = webdriver.ChromeOptions()
-    is_headless = bool(twocaptcha_key or anticaptcha_key or capsolver_key)
+    is_headless = sys.platform.startswith("linux") or os.environ.get("FORCE_HEADLESS") == "1"
     
     if is_headless:
         options.add_argument('--headless=new')
@@ -206,62 +248,85 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             
         print(f"\nProcessing: {lead.get('Channel Name')} ({url})")
         driver.get(f"{url}/about")
-        time.sleep(3)
+        time.sleep(2)
         
         try:
-            btn_xpath = "//*[contains(text(), 'View email address')]"
-            view_btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, btn_xpath)))
+            driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(0.7)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(0.7)
+
+            view_btn = None
+            view_btn_xpaths = [
+                "//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
+                "//button//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]/ancestor::button[1]",
+                "//*[@aria-label and contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
+            ]
+            for xp in view_btn_xpaths:
+                try:
+                    view_btn = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((By.XPATH, xp)))
+                    break
+                except Exception:
+                    continue
+
+            if not view_btn:
+                raise Exception("View email address button not found")
+
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_btn)
+            time.sleep(0.4)
             view_btn.click()
             
             if twocaptcha_key or anticaptcha_key or capsolver_key:
-                print("Clicked 'View email address'. Waiting for reCAPTCHA to appear...")
+                print("Clicked 'View email address'. Attempting auto-solve...")
                 try:
-                    iframe = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, 'recaptcha')]"))
-                    )
-                    src = iframe.get_attribute("src")
-                    
-                    parsed = urlparse.urlparse(src)
-                    sitekey = urlparse.parse_qs(parsed.query).get('k', [None])[0]
+                    sitekey = _find_recaptcha_sitekey(driver)
                     
                     if sitekey:
                         if twocaptcha_key:
-                            print("Sending CAPTCHA to 2Captcha for solving (this takes 15-45 seconds)...")
+                            print("Sending CAPTCHA to 2Captcha...")
                             token = solve_recaptcha_2captcha(twocaptcha_key, sitekey, driver.current_url)
                         elif anticaptcha_key:
-                            print("Sending CAPTCHA to Anti-Captcha for solving (this takes 15-45 seconds)...")
+                            print("Sending CAPTCHA to Anti-Captcha...")
                             token = solve_recaptcha_anticaptcha(anticaptcha_key, sitekey, driver.current_url)
                         
                         elif capsolver_key:
-                            print("Sending CAPTCHA to CapSolver for solving (this takes 15-45 seconds)...")
+                            print("Sending CAPTCHA to CapSolver...")
                             token = solve_recaptcha_capsolver(capsolver_key, sitekey, driver.current_url)
                                 
                         print("Solved! Injecting token and clicking submit...")
                         
                         inject_recaptcha_token(driver, token)
-                        
-                        submit_btn = WebDriverWait(driver, 5).until(
-                            EC.element_to_be_clickable((By.XPATH, "//*[@id='submit-btn'] | //button[contains(., 'Submit')]"))
-                        )
-                        submit_btn.click()
+                        submit_btn = None
+                        submit_xpaths = [
+                            "//*[@id='submit-btn']",
+                            "//button[contains(., 'Submit')]",
+                            "//button[contains(., 'Verify')]",
+                            "//button[contains(., 'Continue')]",
+                        ]
+                        for xp in submit_xpaths:
+                            try:
+                                submit_btn = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((By.XPATH, xp)))
+                                break
+                            except Exception:
+                                continue
+                        if submit_btn:
+                            submit_btn.click()
                     else:
-                        print("Could not find sitekey for auto-solve. Please solve manually.")
+                        print("Could not find sitekey on this channel.")
                 except Exception as e:
-                    print(f"Auto-solve failed ({e}). Falling back to manual solve. Please click the checkbox in the browser...")
+                    print(f"Auto-solve failed ({e}).")
             else:
-                print("Clicked 'View email address'. Please solve the CAPTCHA in the browser (you have 60 seconds)...")
+                print("Clicked 'View email address'.")
             
-            email_link = WebDriverWait(driver, 60).until(
-                EC.presence_of_element_located((By.XPATH, "//a[starts-with(@href, 'mailto:')]"))
-            )
-            
-            email = email_link.text
+            email = _wait_for_any_email(driver, timeout_s=60)
             if email:
                 print(f"Success! Found email: {email}")
                 lead['Emails Found'] = email
+            else:
+                print("Email not found after reveal flow.")
             
         except Exception as e:
-            print(f"Could not extract email automatically for this channel. Skipping...")
+            print(f"Could not extract email automatically for this channel. Skipping... ({e})")
             
     driver.quit()
     
