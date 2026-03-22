@@ -120,6 +120,13 @@ def _extract_first_email(text):
         return None
     return m.group(0).strip().strip('.,;:()[]{}<>')
 
+def _has_valid_email_field(value):
+    if not value:
+        return False
+    if str(value).strip().lower() == "not found":
+        return False
+    return bool(EMAIL_REGEX.search(str(value)))
+
 def _find_recaptcha_sitekey(driver):
     try:
         iframe = driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
@@ -183,7 +190,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print(f"Error: Could not find input file '{input_csv}'")
         return
             
-    needs_email = [lead for lead in leads if lead.get('Emails Found') == 'Not Found' or not lead.get('Emails Found')]
+    needs_email = [lead for lead in leads if not _has_valid_email_field(lead.get('Emails Found'))]
     
     if not needs_email:
         print("All leads already have emails! Nothing to do.")
@@ -261,6 +268,8 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                 "//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
                 "//button//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]/ancestor::button[1]",
                 "//*[@aria-label and contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'view email address')]",
+                "//*[@aria-label and contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'email')]",
+                "//button[.//*[name()='svg'] and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'email')]",
             ]
             for xp in view_btn_xpaths:
                 try:
@@ -269,12 +278,12 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                 except Exception:
                     continue
 
-            if not view_btn:
-                raise Exception("View email address button not found")
-
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_btn)
-            time.sleep(0.4)
-            view_btn.click()
+            if view_btn:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_btn)
+                time.sleep(0.4)
+                view_btn.click()
+            else:
+                print("View email button not found, checking if captcha is already visible.")
             
             if twocaptcha_key or anticaptcha_key or capsolver_key:
                 print("Clicked 'View email address'. Attempting auto-solve...")
