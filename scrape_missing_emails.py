@@ -14,6 +14,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import WebDriverException
 import tempfile
 
 EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
@@ -237,12 +238,14 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     ]
     chromedriver_path = next((p for p in chromedriver_candidates if p and os.path.exists(p)), None)
 
-    try:
+    def start_driver():
         if chromedriver_path:
             service = Service(chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
-        else:
-            driver = webdriver.Chrome(options=options)
+            return webdriver.Chrome(service=service, options=options)
+        return webdriver.Chrome(options=options)
+
+    try:
+        driver = start_driver()
     except Exception as e:
         print(f"Failed to start Chrome driver: {e}")
         print("If running on Streamlit Cloud, make sure packages.txt is configured with chromium and chromium-driver.")
@@ -254,8 +257,22 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
             continue
             
         print(f"\nProcessing: {lead.get('Channel Name')} ({url})")
-        driver.get(f"{url}/about")
-        time.sleep(2)
+        try:
+            driver.get(f"{url}/about")
+            time.sleep(2)
+        except WebDriverException as nav_err:
+            print(f"Browser navigation failed ({nav_err}). Restarting browser and retrying this channel...")
+            try:
+                driver.quit()
+            except Exception:
+                pass
+            try:
+                driver = start_driver()
+                driver.get(f"{url}/about")
+                time.sleep(2)
+            except Exception as retry_err:
+                print(f"Retry failed ({retry_err}). Skipping this channel.")
+                continue
         
         try:
             driver.execute_script("window.scrollTo(0, 0);")
@@ -337,7 +354,10 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         except Exception as e:
             print(f"Could not extract email automatically for this channel. Skipping... ({e})")
             
-    driver.quit()
+    try:
+        driver.quit()
+    except Exception:
+        pass
     
     if leads:
         keys = leads[0].keys()
