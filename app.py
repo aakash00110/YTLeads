@@ -216,9 +216,14 @@ with tab1:
     else:
         st.markdown("Upload a `.txt` or `.csv` file containing YouTube channel URLs. If using CSV, the script will automatically find any column containing YouTube links.")
         
-        with st.form("upload_form"):
-            uploaded_file = st.file_uploader("Upload URLs file", type=['txt', 'csv'])
-            submit_button = st.form_submit_button("Process Uploaded URLs")
+        uploaded_file = st.file_uploader("Upload URLs file", type=['txt', 'csv'], key="upload_urls_file")
+        submit_button = st.button("Process Uploaded URLs", key="process_uploaded_urls")
+        if uploaded_file is not None:
+            st.session_state["uploaded_file_bytes"] = uploaded_file.getvalue()
+            st.session_state["uploaded_file_name"] = uploaded_file.name
+            st.caption(f"Selected file: {uploaded_file.name}")
+        elif st.session_state.get("uploaded_file_name"):
+            st.caption(f"Selected file: {st.session_state.get('uploaded_file_name')}")
             
         adv1, adv2 = st.columns(2)
         with adv1:
@@ -229,22 +234,23 @@ with tab1:
         auto_reveal_upload = st.checkbox("Captcha Priority (Auto Reveal Emails) (Upload)", value=True, help="After processing upload, automatically run email reveal for missing emails.", key="auto_reveal_upload")
             
         if submit_button:
-            # Get the latest api_key from the sidebar input
             current_api_key = st.session_state.get("api_key", "")
+            file_bytes = st.session_state.get("uploaded_file_bytes")
+            file_name = st.session_state.get("uploaded_file_name", "")
             if not current_api_key:
                 st.error("⚠️ Please enter your YouTube API Key in the sidebar first.")
-            elif uploaded_file is None:
+            elif not file_bytes:
                 st.warning("Please upload a file first.")
             else:
                 with st.spinner("Processing your URLs..."):
-                    file_ext = '.csv' if uploaded_file.name.endswith('.csv') else '.txt'
+                    file_ext = '.csv' if file_name.endswith('.csv') else '.txt'
                     
                     tmp_dir = os.path.join(os.getcwd(), "temp_uploads")
                     os.makedirs(tmp_dir, exist_ok=True)
                     tmp_path = os.path.join(tmp_dir, f"uploaded_list{file_ext}")
                     
                     with open(tmp_path, 'wb') as tmp:
-                        tmp.write(uploaded_file.getvalue())
+                        tmp.write(file_bytes)
                         
                     output_filename = "leads.csv"
                     old_stdout = sys.stdout
