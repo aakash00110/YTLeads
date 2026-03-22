@@ -12,21 +12,47 @@ EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
 
 URL_REGEX = r'(?:(?:https?://)|(?:www\.))[^\s<>\]\)"]+'
 
-def _normalize_text_for_email_search(text):
+OBF_AT = r'(?:\(|\[|\{)?\s*at\s*(?:\)|\]|\})?'
+OBF_DOT = r'(?:\(|\[|\{)?\s*dot\s*(?:\)|\]|\})?'
+
+def _extract_obfuscated_emails(text):
     if not text:
-        return ""
-    t = text
-    t = re.sub(r'\s*(?:\(|\[)?\s*at\s*(?:\)|\])?\s*', '@', t, flags=re.IGNORECASE)
-    t = re.sub(r'\s*(?:\(|\[)?\s*dot\s*(?:\)|\])?\s*', '.', t, flags=re.IGNORECASE)
-    t = re.sub(r'\s*@\s*', '@', t)
-    t = re.sub(r'\s*\.\s*', '.', t)
-    t = t.replace('mailto:', '')
-    return t
+        return []
+    matches = []
+    pattern = re.compile(
+        r'(?i)(?<![a-z0-9])'
+        r'([a-z0-9][a-z0-9._%+-]{0,63})'
+        r'\s*' + OBF_AT + r'\s*'
+        r'([a-z0-9][a-z0-9.-]{0,251})'
+        r'(?:\s*' + OBF_DOT + r'\s*([a-z]{2,24}))'
+        r'(?:\s*' + OBF_DOT + r'\s*([a-z]{2,24}))?'
+        r'(?![a-z0-9])'
+    )
+    for m in pattern.finditer(text):
+        local = m.group(1)
+        domain = m.group(2)
+        tld1 = m.group(3)
+        tld2 = m.group(4)
+        if not tld1:
+            continue
+        email = f"{local}@{domain}.{tld1}"
+        if tld2:
+            email = f"{email}.{tld2}"
+        matches.append(email)
+    return matches
 
 def extract_emails(text):
-    t = _normalize_text_for_email_search(text or "")
-    emails = re.findall(EMAIL_REGEX, t)
-    return sorted(set(e.strip().strip('.,;:()[]{}<>') for e in emails if e))
+    t = (text or "").replace('mailto:', '')
+    emails = set()
+    for e in re.findall(EMAIL_REGEX, t):
+        e = e.strip().strip('.,;:()[]{}<>')
+        if e:
+            emails.add(e)
+    for e in _extract_obfuscated_emails(t):
+        e = e.strip().strip('.,;:()[]{}<>')
+        if e:
+            emails.add(e)
+    return sorted(emails)
 
 def extract_urls(text):
     if not text:

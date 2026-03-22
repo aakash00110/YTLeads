@@ -124,15 +124,13 @@ with tab1:
             # Increased max value to 1000
             max_results = st.number_input("Max Results", min_value=1, max_value=1000, value=50, help="YouTube Search API supports fetching up to ~500-1000 results per query via pagination.")
         
-        adv1, adv2, adv3 = st.columns(3)
+        adv1, adv2 = st.columns(2)
         with adv1:
-            scan_videos = st.number_input("Scan Videos", min_value=0, max_value=25, value=10, help="Checks recent video descriptions for emails.")
+            crawl_links = st.checkbox("Crawl Links", value=True, help="Fetch external links from channel description and scan for emails.")
         with adv2:
-            crawl_links = st.checkbox("Crawl Links", value=True, help="Fetch external links and scan for emails.")
-        with adv3:
             crawl_max_urls = st.number_input("Max Link Fetches", min_value=0, max_value=10, value=3, help="Max external pages fetched per channel.")
 
-        auto_reveal = st.checkbox("Captcha Priority (Auto Reveal Emails)", value=False, help="After Step 1 finishes, automatically run the email reveal bot for remaining Not Found emails.")
+        auto_reveal = st.checkbox("Captcha Priority (Auto Reveal Emails)", value=True, help="After Step 1 finishes, automatically run the email reveal bot for remaining Not Found emails.")
             
         if st.button("Start Search"):
             current_api_key = st.session_state.get("api_key", "")
@@ -152,7 +150,7 @@ with tab1:
                             query=query,
                             max_results=max_results,
                             output_file=output_filename,
-                            scan_videos_count=int(scan_videos),
+                            scan_videos_count=0,
                             crawl_links=bool(crawl_links),
                             crawl_max_urls=int(crawl_max_urls),
                         )
@@ -222,15 +220,13 @@ with tab1:
             uploaded_file = st.file_uploader("Upload URLs file", type=['txt', 'csv'])
             submit_button = st.form_submit_button("Process Uploaded URLs")
             
-        adv1, adv2, adv3 = st.columns(3)
+        adv1, adv2 = st.columns(2)
         with adv1:
-            scan_videos_upload = st.number_input("Scan Videos (Upload)", min_value=0, max_value=25, value=10, help="Checks recent video descriptions for emails.", key="scan_videos_upload")
+            crawl_links_upload = st.checkbox("Crawl Links (Upload)", value=True, help="Fetch external links from channel description and scan for emails.", key="crawl_links_upload")
         with adv2:
-            crawl_links_upload = st.checkbox("Crawl Links (Upload)", value=True, help="Fetch external links and scan for emails.", key="crawl_links_upload")
-        with adv3:
             crawl_max_urls_upload = st.number_input("Max Link Fetches (Upload)", min_value=0, max_value=10, value=3, help="Max external pages fetched per channel.", key="crawl_max_urls_upload")
 
-        auto_reveal_upload = st.checkbox("Captcha Priority (Auto Reveal Emails) (Upload)", value=False, help="After processing upload, automatically run email reveal for missing emails.", key="auto_reveal_upload")
+        auto_reveal_upload = st.checkbox("Captcha Priority (Auto Reveal Emails) (Upload)", value=True, help="After processing upload, automatically run email reveal for missing emails.", key="auto_reveal_upload")
             
         if submit_button:
             # Get the latest api_key from the sidebar input
@@ -259,7 +255,7 @@ with tab1:
                             current_api_key,
                             input_file=tmp_path,
                             output_file=output_filename,
-                            scan_videos_count=int(scan_videos_upload),
+                            scan_videos_count=0,
                             crawl_links=bool(crawl_links_upload),
                             crawl_max_urls=int(crawl_max_urls_upload),
                         )
