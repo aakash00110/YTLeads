@@ -221,6 +221,19 @@ def _wait_for_any_email(driver, timeout_s=45):
         time.sleep(0.5)
     return None
 
+def _is_sign_in_required(driver):
+    try:
+        text = (driver.page_source or "").lower()
+    except Exception:
+        text = ""
+    markers = [
+        "sign in to see email address",
+        "signin to see email address",
+        "sign in to continue",
+        "accounts.google.com",
+    ]
+    return any(m in text for m in markers)
+
 def inject_recaptcha_token(driver, token):
     driver.execute_script(
         """
@@ -356,6 +369,11 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                     lead["Emails Found"] = existing_email
                     success = True
                     break
+                if _is_sign_in_required(driver):
+                    print("Channel requires YouTube sign-in before email reveal. Skipping.")
+                    lead["Emails Found"] = "Sign-in required"
+                    success = True
+                    break
 
                 driver.execute_script("window.scrollTo(0, 0);")
                 time.sleep(0.7)
@@ -418,6 +436,11 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                                 continue
                         if submit_btn:
                             submit_btn.click()
+                    elif _is_sign_in_required(driver):
+                        print("Sign-in wall detected. 2Captcha cannot bypass account login requirement.")
+                        lead["Emails Found"] = "Sign-in required"
+                        success = True
+                        break
 
                 wait_s = EMAIL_WAIT_SECONDS if has_view_flow else FAST_SKIP_SECONDS
                 email = _wait_for_any_email(driver, timeout_s=wait_s)
