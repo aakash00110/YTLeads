@@ -22,6 +22,7 @@ FAST_SKIP_SECONDS = int(os.environ.get("FAST_SKIP_SECONDS", "6"))
 EMAIL_WAIT_SECONDS = int(os.environ.get("EMAIL_WAIT_SECONDS", "10"))
 CAPTCHA_WAIT_SECONDS = int(os.environ.get("CAPTCHA_WAIT_SECONDS", "20"))
 MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
+CLONE_PROFILE_SNAPSHOT = os.environ.get("CLONE_PROFILE_SNAPSHOT", "1") == "1"
 
 def _normalize_input_path(text):
     v = (text or "").strip()
@@ -29,6 +30,36 @@ def _normalize_input_path(text):
         v = v[2:].strip()
     v = v.strip('"').strip("'")
     return os.path.expanduser(v)
+
+def _prepare_profile_snapshot(user_data_dir, profile_dir):
+    if not user_data_dir or not profile_dir:
+        return None
+    src_profile = os.path.join(user_data_dir, profile_dir)
+    if not os.path.isdir(src_profile):
+        return None
+    snapshot_root = tempfile.mkdtemp(prefix="chrome-profile-snapshot-")
+    dst_profile = os.path.join(snapshot_root, profile_dir)
+    try:
+        shutil.copytree(
+            src_profile,
+            dst_profile,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "Cache", "Code Cache", "GPUCache", "Service Worker", "GrShaderCache",
+                "ShaderCache", "Crashpad", "BrowserMetrics", "optimization_guide_model_store"
+            ),
+        )
+        local_state_src = os.path.join(user_data_dir, "Local State")
+        local_state_dst = os.path.join(snapshot_root, "Local State")
+        if os.path.exists(local_state_src):
+            shutil.copy2(local_state_src, local_state_dst)
+        return snapshot_root
+    except Exception:
+        try:
+            shutil.rmtree(snapshot_root, ignore_errors=True)
+        except Exception:
+            pass
+        return None
 
 def _macos_google_chrome_binary():
     candidates = [
@@ -370,6 +401,13 @@ def scrape_captcha_emails(
     if require_signed_in_profile and (not os.path.isdir(profile_user_data_dir) or not os.path.isdir(os.path.join(profile_user_data_dir, profile_directory))):
         print("Signed-in profile is required but the configured Chrome profile folder does not exist.")
         return
+    profile_snapshot_root = None
+    if profile_user_data_dir and profile_directory and CLONE_PROFILE_SNAPSHOT:
+        profile_snapshot_root = _prepare_profile_snapshot(profile_user_data_dir, profile_directory)
+        if profile_snapshot_root:
+            print(f"Using cloned Chrome profile snapshot: {profile_snapshot_root}/{profile_directory}")
+            profile_user_data_dir = profile_snapshot_root
+
     if profile_user_data_dir:
         print(f"Using Chrome user-data-dir: {profile_user_data_dir}")
         options.add_argument(f"--user-data-dir={profile_user_data_dir}")
@@ -421,19 +459,9 @@ def scrape_captcha_emails(
             driver.get("https://www.youtube.com/")
             time.sleep(2)
             if not _is_logged_in_youtube(driver):
-                print("Configured Chrome profile is not signed into YouTube. Stopping run.")
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
-                return
+                print("Warning: configured profile may not be signed into YouTube. Continuing run anyway.")
         except Exception as e:
-            print(f"Could not verify YouTube sign-in state ({e}). Stopping run.")
-            try:
-                driver.quit()
-            except Exception:
-                pass
-            return
+            print(f"Warning: could not verify YouTube sign-in state ({e}). Continuing run.")
     
     processed = 0
     found_count = 0
@@ -611,6 +639,11 @@ def scrape_captcha_emails(
         driver.quit()
     except Exception:
         pass
+    if profile_snapshot_root:
+        try:
+            shutil.rmtree(profile_snapshot_root, ignore_errors=True)
+        except Exception:
+            pass
     
     if leads:
         _save_progress(output_csv, leads)
