@@ -251,6 +251,19 @@ def _set_reveal_result(lead, status, source="", error="", attempts=0):
     lead["Reveal Error"] = error
     lead["Reveal Attempts"] = str(attempts)
 
+def _normalize_statuses(leads):
+    for lead in leads:
+        status = (lead.get("Reveal Status") or "").strip()
+        if status:
+            continue
+        email_val = (lead.get("Emails Found") or "").strip()
+        if _has_valid_email_field(email_val):
+            _set_reveal_result(lead, "revealed", source="existing_value", attempts=0)
+        elif email_val.lower() == "sign-in required":
+            _set_reveal_result(lead, "sign_in_required", source="existing_value", attempts=0)
+        else:
+            _set_reveal_result(lead, "not_processed", source="normalizer", attempts=0)
+
 def _find_recaptcha_sitekey(driver):
     try:
         iframe = driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
@@ -352,6 +365,7 @@ def scrape_captcha_emails(
     _ensure_output_columns(leads)
     needs_email = []
     for lead in leads:
+        _set_reveal_result(lead, lead.get("Reveal Status", "") or "queued", source=lead.get("Reveal Source", ""), error=lead.get("Reveal Error", ""), attempts=lead.get("Reveal Attempts", 0))
         existing = lead.get("Reveal Status", "").strip().lower()
         if existing == "revealed" and _has_valid_email_field(lead.get("Emails Found")):
             continue
@@ -682,6 +696,7 @@ def scrape_captcha_emails(
             pass
     
     if leads:
+        _normalize_statuses(leads)
         _save_progress(output_csv, leads)
         print(f"\nSaved updated leads to {output_csv}")
         print(f"Processed: {processed} | Found: {found_count} | Not Found: {failed_count}")
