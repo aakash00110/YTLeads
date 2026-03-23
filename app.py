@@ -6,6 +6,7 @@ import tempfile
 import sys
 import io
 import json
+import sqlite3
 from youtube_lead_extractor import get_channel_leads
 
 APP_BUILD = "2026-03-23-b930a27"
@@ -74,6 +75,77 @@ def normalize_profile_path(text):
         v = v[2:].strip()
     v = v.strip('"').strip("'")
     return os.path.expanduser(v)
+
+def _profile_cookie_score(user_data_dir, profile_dir):
+    score = 0
+    for cookie_path in [
+        os.path.join(user_data_dir, profile_dir, "Cookies"),
+        os.path.join(user_data_dir, profile_dir, "Network", "Cookies"),
+    ]:
+        if not os.path.exists(cookie_path):
+            continue
+        tmp_cookie = ""
+        conn = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="cookie-copy-", suffix=".sqlite", delete=False) as tf:
+                tmp_cookie = tf.name
+            with open(cookie_path, "rb") as src, open(tmp_cookie, "wb") as dst:
+                dst.write(src.read())
+            conn = sqlite3.connect(tmp_cookie)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT COUNT(1) FROM cookies
+                WHERE host_key LIKE '%google.com'
+                AND name IN ('SID', 'HSID', 'SSID', 'APISID', 'SAPISID')
+                """
+            )
+            row = cur.fetchone()
+            score = max(score, int(row[0] if row and row[0] else 0))
+        except Exception:
+            pass
+        finally:
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+            try:
+                if tmp_cookie and os.path.exists(tmp_cookie):
+                    os.remove(tmp_cookie)
+            except Exception:
+                pass
+    return score
+
+def resolve_best_chrome_profile(preferred_user_data_dir="", preferred_profile_dir=""):
+    roots = []
+    for r in [
+        preferred_user_data_dir,
+        os.path.expanduser("~/Library/Application Support/Google/Chrome"),
+        os.path.expanduser("~/Library/Application Support/Google/Chrome -"),
+        os.path.expanduser("~/Library/Application Support/Chromium"),
+    ]:
+        rr = normalize_profile_path(r)
+        if rr and os.path.isdir(rr) and rr not in roots:
+            roots.append(rr)
+    best = ("", "", -1)
+    for root in roots:
+        names = []
+        if preferred_profile_dir and os.path.isdir(os.path.join(root, preferred_profile_dir)):
+            names.append(preferred_profile_dir)
+        try:
+            for n in sorted(os.listdir(root)):
+                p = os.path.join(root, n)
+                if os.path.isdir(p) and (n == "Default" or n.startswith("Profile ")):
+                    if n not in names:
+                        names.append(n)
+        except Exception:
+            continue
+        for n in names:
+            score = _profile_cookie_score(root, n)
+            if score > best[2]:
+                best = (root, n, score)
+    return best
 
 def run_email_reveal_bot(
     twocaptcha_key,
@@ -295,6 +367,10 @@ with tab2:
                 if profile_dir.startswith("- "):
                     profile_dir = profile_dir[2:].strip()
                 profile_dir = profile_dir.strip('"').strip("'") or detect_last_used_chrome_profile()
+                best_root, best_profile, best_score = resolve_best_chrome_profile(profile_user_data_dir, profile_dir)
+                if best_root and best_profile and best_score >= 0:
+                    profile_user_data_dir = best_root
+                    profile_dir = best_profile
                 st.session_state["chrome_user_data_dir"] = profile_user_data_dir
                 st.session_state["chrome_profile_dir"] = profile_dir
                 if not profile_user_data_dir or not profile_dir:
@@ -307,6 +383,8 @@ with tab2:
                     st.error(f"⚠️ Chrome profile folder not found: {os.path.join(profile_user_data_dir, profile_dir)}")
                     st.stop()
                 st.info(f"Using signed-in Chrome profile: {profile_dir}")
+                if best_root and best_profile:
+                    st.info(f"Resolved profile root: {best_root}")
                 st.info("🤖 2Captcha key detected. Running auto reveal...")
                 spinner_text = "Bot is running... moving channel by channel."
                 
