@@ -66,6 +66,13 @@ def detect_default_chrome_user_data_dir():
             return c
     return ""
 
+def normalize_profile_path(text):
+    v = (text or "").strip()
+    if v.startswith("- "):
+        v = v[2:].strip()
+    v = v.strip('"').strip("'")
+    return os.path.expanduser(v)
+
 def run_email_reveal_bot(
     twocaptcha_key,
     input_csv="leads.csv",
@@ -245,8 +252,11 @@ with tab2:
                 if not twocaptcha_key:
                     st.error("⚠️ Please enter your 2Captcha API Key in the sidebar before starting Step 2.")
                     st.stop()
-                profile_user_data_dir = st.session_state.get("chrome_user_data_dir", "").strip() or detect_default_chrome_user_data_dir()
-                profile_dir = st.session_state.get("chrome_profile_dir", "").strip() or detect_last_used_chrome_profile()
+                profile_user_data_dir = normalize_profile_path(st.session_state.get("chrome_user_data_dir", "")) or detect_default_chrome_user_data_dir()
+                profile_dir = (st.session_state.get("chrome_profile_dir", "") or "").strip()
+                if profile_dir.startswith("- "):
+                    profile_dir = profile_dir[2:].strip()
+                profile_dir = profile_dir.strip('"').strip("'") or detect_last_used_chrome_profile()
                 st.session_state["chrome_user_data_dir"] = profile_user_data_dir
                 st.session_state["chrome_profile_dir"] = profile_dir
                 if not profile_user_data_dir or not profile_dir:

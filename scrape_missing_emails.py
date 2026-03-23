@@ -23,6 +23,13 @@ EMAIL_WAIT_SECONDS = int(os.environ.get("EMAIL_WAIT_SECONDS", "10"))
 CAPTCHA_WAIT_SECONDS = int(os.environ.get("CAPTCHA_WAIT_SECONDS", "20"))
 MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
 
+def _normalize_input_path(text):
+    v = (text or "").strip()
+    if v.startswith("- "):
+        v = v[2:].strip()
+    v = v.strip('"').strip("'")
+    return os.path.expanduser(v)
+
 def _macos_google_chrome_binary():
     candidates = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -245,18 +252,17 @@ def _is_sign_in_required(driver):
     return any(m in text for m in markers)
 
 def _is_logged_in_youtube(driver):
+    try:
+        driver.get("https://www.youtube.com/account")
+        time.sleep(2)
+    except Exception:
+        return False
+    url = (driver.current_url or "").lower()
+    if "servicelogin" in url or "accounts.google.com" in url:
+        return False
     if _is_sign_in_required(driver):
         return False
-    try:
-        driver.find_element(By.CSS_SELECTOR, "button#avatar-btn")
-        return True
-    except Exception:
-        pass
-    try:
-        driver.find_element(By.XPATH, "//a[contains(@href, 'ServiceLogin') or contains(@href, 'signin')]")
-        return False
-    except Exception:
-        return True
+    return True
 
 def inject_recaptcha_token(driver, token):
     driver.execute_script(
@@ -331,8 +337,11 @@ def scrape_captcha_emails(
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
     options.add_argument('--remote-debugging-port=9222')
-    profile_user_data_dir = (chrome_user_data_dir or os.environ.get("CHROME_USER_DATA_DIR", "")).strip()
+    profile_user_data_dir = _normalize_input_path(chrome_user_data_dir or os.environ.get("CHROME_USER_DATA_DIR", ""))
     profile_directory = (chrome_profile_dir or os.environ.get("CHROME_PROFILE_DIR", "")).strip()
+    if profile_directory.startswith("- "):
+        profile_directory = profile_directory[2:].strip()
+    profile_directory = profile_directory.strip('"').strip("'")
     if require_signed_in_profile and (not profile_user_data_dir or not profile_directory):
         print("Signed-in profile is required but Chrome profile path is missing.")
         return
