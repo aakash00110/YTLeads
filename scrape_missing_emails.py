@@ -6,6 +6,7 @@ import os
 import re
 import urllib.parse as urlparse
 import shutil
+import sqlite3
 
 from selenium import webdriver
 import requests
@@ -34,6 +35,38 @@ def _normalize_input_path(text):
 def _prepare_profile_snapshot(user_data_dir, profile_dir):
     if not user_data_dir or not profile_dir:
         return None
+
+def _profile_has_google_session(user_data_dir, profile_dir):
+    try:
+        cookie_db = os.path.join(user_data_dir, profile_dir, "Cookies")
+        if not os.path.exists(cookie_db):
+            return False
+        with tempfile.NamedTemporaryFile(prefix="cookie-copy-", suffix=".sqlite", delete=False) as tf:
+            tmp_cookie_db = tf.name
+        shutil.copy2(cookie_db, tmp_cookie_db)
+        try:
+            conn = sqlite3.connect(tmp_cookie_db)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT COUNT(1) FROM cookies
+                WHERE host_key LIKE '%google.com'
+                AND name IN ('SID', 'HSID', 'SSID', 'APISID', 'SAPISID')
+                """
+            )
+            row = cur.fetchone()
+            return bool(row and row[0] and row[0] > 0)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                os.remove(tmp_cookie_db)
+            except Exception:
+                pass
+    except Exception:
+        return False
     src_profile = os.path.join(user_data_dir, profile_dir)
     if not os.path.isdir(src_profile):
         return None
@@ -480,6 +513,17 @@ def scrape_captcha_emails(
         return webdriver.Chrome(options=options)
 
     active_profile_dir = profile_directory
+    if require_signed_in_profile and profile_user_data_dir and active_profile_dir:
+        if not _profile_has_google_session(profile_user_data_dir, active_profile_dir):
+            candidates = []
+            for name in sorted(os.listdir(profile_user_data_dir)):
+                p = os.path.join(profile_user_data_dir, name)
+                if os.path.isdir(p) and (name == "Default" or name.startswith("Profile ")):
+                    candidates.append(name)
+            preferred = [c for c in candidates if _profile_has_google_session(profile_user_data_dir, c)]
+            if preferred:
+                active_profile_dir = preferred[0]
+                print(f"Switched to profile with Google session cookies: {active_profile_dir}")
     if profile_user_data_dir:
         print(f"Using Chrome user-data-dir: {profile_user_data_dir}")
     if active_profile_dir:
@@ -503,6 +547,13 @@ def scrape_captcha_emails(
                         p = os.path.join(profile_user_data_dir, name)
                         if os.path.isdir(p) and (name == "Default" or name.startswith("Profile ")):
                             candidates.append(name)
+                candidates = sorted(
+                    candidates,
+                    key=lambda n: (
+                        0 if _profile_has_google_session(profile_user_data_dir, n) else 1,
+                        n,
+                    ),
+                )
                 if active_profile_dir in candidates:
                     candidates = [active_profile_dir] + [c for c in candidates if c != active_profile_dir]
                 switched = False
