@@ -159,6 +159,7 @@ def run_email_reveal_bot(
     max_attempts_per_channel=2,
     require_signed_in_profile=True,
     clone_profile_snapshot=False,
+    attach_real_chrome=False,
 ):
     cmd = [sys.executable, "scrape_missing_emails.py", "--input", input_csv, "--output", output_csv]
     if twocaptcha_key:
@@ -177,6 +178,7 @@ def run_email_reveal_bot(
     env["CAPTCHA_WAIT_SECONDS"] = str(int(captcha_wait_seconds))
     env["MAX_ATTEMPTS_PER_CHANNEL"] = str(int(max_attempts_per_channel))
     env["CLONE_PROFILE_SNAPSHOT"] = "1" if clone_profile_snapshot else "0"
+    env["ATTACH_REAL_CHROME"] = "1" if attach_real_chrome else "0"
     return cmd, env
 
 # Sidebar for Settings
@@ -402,6 +404,7 @@ with tab2:
                             max_attempts_per_channel=st.session_state.get("max_attempts_per_channel", 2),
                             require_signed_in_profile=True,
                             clone_profile_snapshot=st.session_state.get("clone_profile_snapshot", False),
+                            attach_real_chrome=False,
                         )
                             
                         process = subprocess.Popen(

@@ -25,6 +25,7 @@ EMAIL_WAIT_SECONDS = int(os.environ.get("EMAIL_WAIT_SECONDS", "10"))
 CAPTCHA_WAIT_SECONDS = int(os.environ.get("CAPTCHA_WAIT_SECONDS", "20"))
 MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
 CLONE_PROFILE_SNAPSHOT = os.environ.get("CLONE_PROFILE_SNAPSHOT", "0") == "1"
+ATTACH_REAL_CHROME = os.environ.get("ATTACH_REAL_CHROME", "0") == "1"
 
 def _normalize_input_path(text):
     v = (text or "").strip()
@@ -603,7 +604,7 @@ def scrape_captcha_emails(
 
     def start_driver(active_profile_dir):
         options = build_options(active_profile_dir)
-        if sys.platform == "darwin" and profile_user_data_dir and active_profile_dir:
+        if ATTACH_REAL_CHROME and sys.platform == "darwin" and profile_user_data_dir and active_profile_dir:
             launched = _launch_mac_chrome_profile(profile_user_data_dir, active_profile_dir, debugging_port=9222)
             if launched:
                 attach_options = webdriver.ChromeOptions()
@@ -619,6 +620,8 @@ def scrape_captcha_emails(
                 else:
                     print("Debugger endpoint not ready, falling back to direct launch.")
         if sys.platform == "darwin":
+            if profile_user_data_dir and active_profile_dir:
+                print("Using direct webdriver launch with selected profile.")
             return webdriver.Chrome(options=options)
         if chromedriver_path:
             service = Service(chromedriver_path)
