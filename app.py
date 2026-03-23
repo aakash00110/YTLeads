@@ -45,13 +45,32 @@ st.markdown('<p class="sub-header">Find leads based on your ICP and extract thei
 
 is_streamlit_cloud = os.environ.get("HOME", "").startswith("/home/adminuser") or "streamlit" in os.environ.get("SERVER_SOFTWARE", "").lower()
 
-def run_email_reveal_bot(twocaptcha_key, input_csv="leads.csv", output_csv="leads_updated.csv"):
+def run_email_reveal_bot(
+    twocaptcha_key,
+    input_csv="leads.csv",
+    output_csv="leads_updated.csv",
+    chrome_user_data_dir="",
+    chrome_profile_dir="",
+    fast_skip_seconds=6,
+    email_wait_seconds=10,
+    captcha_wait_seconds=20,
+    max_attempts_per_channel=2,
+):
     cmd = [sys.executable, "scrape_missing_emails.py", "--input", input_csv, "--output", output_csv]
     if twocaptcha_key:
         cmd.extend(["--twocaptcha", twocaptcha_key])
     else:
         raise Exception("No Auto-CAPTCHA API key provided for the selected service.")
-    return cmd
+    env = os.environ.copy()
+    if chrome_user_data_dir:
+        env["CHROME_USER_DATA_DIR"] = chrome_user_data_dir
+    if chrome_profile_dir:
+        env["CHROME_PROFILE_DIR"] = chrome_profile_dir
+    env["FAST_SKIP_SECONDS"] = str(int(fast_skip_seconds))
+    env["EMAIL_WAIT_SECONDS"] = str(int(email_wait_seconds))
+    env["CAPTCHA_WAIT_SECONDS"] = str(int(captcha_wait_seconds))
+    env["MAX_ATTEMPTS_PER_CHANNEL"] = str(int(max_attempts_per_channel))
+    return cmd, env
 
 # Sidebar for Settings
 with st.sidebar:
@@ -75,6 +94,30 @@ with st.sidebar:
     )
     if twocaptcha_key_input:
         st.session_state["twocaptcha_key"] = twocaptcha_key_input
+    st.markdown("---")
+    st.markdown("### Signed-in Browser (Optional)")
+    chrome_user_data_dir = st.text_input(
+        "Chrome User Data Dir",
+        value=st.session_state.get("chrome_user_data_dir", "") or os.environ.get("CHROME_USER_DATA_DIR", ""),
+        help="Example on macOS: /Users/yourname/Library/Application Support/Google/Chrome",
+    )
+    chrome_profile_dir = st.text_input(
+        "Chrome Profile Dir",
+        value=st.session_state.get("chrome_profile_dir", "Default") or os.environ.get("CHROME_PROFILE_DIR", "Default"),
+        help="Examples: Default, Profile 1, Profile 2",
+    )
+    st.session_state["chrome_user_data_dir"] = chrome_user_data_dir
+    st.session_state["chrome_profile_dir"] = chrome_profile_dir
+    st.markdown("---")
+    st.markdown("### Step 2 Speed")
+    fast_skip_seconds = st.number_input("Fast Skip Seconds", min_value=2, max_value=30, value=int(st.session_state.get("fast_skip_seconds", 6)))
+    email_wait_seconds = st.number_input("Email Wait Seconds", min_value=3, max_value=60, value=int(st.session_state.get("email_wait_seconds", 10)))
+    captcha_wait_seconds = st.number_input("Captcha Wait Seconds", min_value=5, max_value=120, value=int(st.session_state.get("captcha_wait_seconds", 20)))
+    max_attempts_per_channel = st.number_input("Max Attempts Per Channel", min_value=1, max_value=5, value=int(st.session_state.get("max_attempts_per_channel", 2)))
+    st.session_state["fast_skip_seconds"] = int(fast_skip_seconds)
+    st.session_state["email_wait_seconds"] = int(email_wait_seconds)
+    st.session_state["captcha_wait_seconds"] = int(captcha_wait_seconds)
+    st.session_state["max_attempts_per_channel"] = int(max_attempts_per_channel)
         
     st.markdown("---")
     st.markdown("### How to use:")
@@ -183,22 +226,24 @@ with tab2:
                 
                 with st.spinner(spinner_text):
                     try:
-                        cmd = [
-                            sys.executable,
-                            "scrape_missing_emails.py",
-                            "--input",
-                            "leads.csv",
-                            "--output",
-                            "leads_updated.csv",
-                            "--twocaptcha",
+                        cmd, env = run_email_reveal_bot(
                             twocaptcha_key,
-                        ]
+                            input_csv="leads.csv",
+                            output_csv="leads_updated.csv",
+                            chrome_user_data_dir=st.session_state.get("chrome_user_data_dir", ""),
+                            chrome_profile_dir=st.session_state.get("chrome_profile_dir", ""),
+                            fast_skip_seconds=st.session_state.get("fast_skip_seconds", 6),
+                            email_wait_seconds=st.session_state.get("email_wait_seconds", 10),
+                            captcha_wait_seconds=st.session_state.get("captcha_wait_seconds", 20),
+                            max_attempts_per_channel=st.session_state.get("max_attempts_per_channel", 2),
+                        )
                             
                         process = subprocess.Popen(
                             cmd,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT,
-                            text=True
+                            text=True,
+                            env=env
                         )
                         
                         log_placeholder = st.empty()
