@@ -375,21 +375,7 @@ def scrape_captcha_emails(
     else:
         print("Starting browser... NOTE: You will need to manually solve the CAPTCHA when it appears in the browser window.")
     
-    options = webdriver.ChromeOptions()
     is_headless = sys.platform.startswith("linux") or os.environ.get("FORCE_HEADLESS") == "1"
-    
-    if is_headless:
-        options.add_argument('--headless=new')
-        
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--disable-extensions')
-    options.add_argument('--disable-software-rasterizer')
-    options.add_argument('--disable-features=VizDisplayCompositor')
-    options.add_argument('--window-size=1920,1080')
-    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-    
     profile_user_data_dir = _normalize_input_path(chrome_user_data_dir or os.environ.get("CHROME_USER_DATA_DIR", ""))
     profile_directory = (chrome_profile_dir or os.environ.get("CHROME_PROFILE_DIR", "")).strip()
     if profile_directory.startswith("- "):
@@ -412,28 +398,11 @@ def scrape_captcha_emails(
     elif profile_user_data_dir and profile_directory:
         print("Using direct signed-in Chrome profile mode.")
 
-    if profile_user_data_dir:
-        print(f"Using Chrome user-data-dir: {profile_user_data_dir}")
-        options.add_argument(f"--user-data-dir={profile_user_data_dir}")
-        if profile_directory:
-            print(f"Using Chrome profile-directory: {profile_directory}")
-            options.add_argument(f"--profile-directory={profile_directory}")
-    else:
-        user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
-        print(f"Using temporary Chrome profile: {user_data_dir}")
-        options.add_argument(f'--user-data-dir={user_data_dir}')
-
     chromium_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
-    if sys.platform == "darwin":
-        mac_chrome = _macos_google_chrome_binary()
-        if mac_chrome:
-            options.binary_location = mac_chrome
-            print(f"Using browser binary: {mac_chrome}")
-        elif chromium_path:
-            options.binary_location = chromium_path
-            print(f"Using browser binary: {chromium_path}")
+    mac_chrome = _macos_google_chrome_binary() if sys.platform == "darwin" else None
+    if mac_chrome:
+        print(f"Using browser binary: {mac_chrome}")
     elif chromium_path:
-        options.binary_location = chromium_path
         print(f"Using browser binary: {chromium_path}")
 
     chromedriver_candidates = [
@@ -444,7 +413,34 @@ def scrape_captcha_emails(
     ]
     chromedriver_path = next((p for p in chromedriver_candidates if p and os.path.exists(p)), None)
 
-    def start_driver():
+    def build_options(active_profile_dir):
+        options = webdriver.ChromeOptions()
+        if is_headless:
+            options.add_argument('--headless=new')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-software-rasterizer')
+        options.add_argument('--disable-features=VizDisplayCompositor')
+        options.add_argument('--window-size=1920,1080')
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        if mac_chrome:
+            options.binary_location = mac_chrome
+        elif chromium_path:
+            options.binary_location = chromium_path
+        if profile_user_data_dir:
+            options.add_argument(f"--user-data-dir={profile_user_data_dir}")
+            if active_profile_dir:
+                options.add_argument(f"--profile-directory={active_profile_dir}")
+        else:
+            user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
+            print(f"Using temporary Chrome profile: {user_data_dir}")
+            options.add_argument(f'--user-data-dir={user_data_dir}')
+        return options
+
+    def start_driver(active_profile_dir):
+        options = build_options(active_profile_dir)
         if sys.platform == "darwin":
             return webdriver.Chrome(options=options)
         if chromedriver_path:
@@ -452,8 +448,14 @@ def scrape_captcha_emails(
             return webdriver.Chrome(service=service, options=options)
         return webdriver.Chrome(options=options)
 
+    active_profile_dir = profile_directory
+    if profile_user_data_dir:
+        print(f"Using Chrome user-data-dir: {profile_user_data_dir}")
+    if active_profile_dir:
+        print(f"Using Chrome profile-directory: {active_profile_dir}")
+
     try:
-        driver = start_driver()
+        driver = start_driver(active_profile_dir)
     except Exception as e:
         print(f"Failed to start Chrome driver: {e}")
         print("If running on Streamlit Cloud, make sure packages.txt is configured with chromium and chromium-driver.")
@@ -463,7 +465,37 @@ def scrape_captcha_emails(
             driver.get("https://www.youtube.com/")
             time.sleep(2)
             if not _is_logged_in_youtube(driver):
-                print("Warning: configured profile may not be signed into YouTube. Continuing run anyway.")
+                print("Warning: selected profile appears signed out. Trying other local Chrome profiles...")
+                candidates = []
+                if profile_user_data_dir and os.path.isdir(profile_user_data_dir):
+                    for name in sorted(os.listdir(profile_user_data_dir)):
+                        p = os.path.join(profile_user_data_dir, name)
+                        if os.path.isdir(p) and (name == "Default" or name.startswith("Profile ")):
+                            candidates.append(name)
+                if active_profile_dir in candidates:
+                    candidates = [active_profile_dir] + [c for c in candidates if c != active_profile_dir]
+                switched = False
+                for cand in candidates:
+                    if cand == active_profile_dir:
+                        continue
+                    print(f"Trying fallback profile: {cand}")
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+                    try:
+                        driver = start_driver(cand)
+                        driver.get("https://www.youtube.com/")
+                        time.sleep(2)
+                        if _is_logged_in_youtube(driver):
+                            active_profile_dir = cand
+                            switched = True
+                            print(f"Using fallback signed-in profile: {cand}")
+                            break
+                    except Exception:
+                        continue
+                if not switched:
+                    print("No signed-in Chrome profile detected. Continuing in current session.")
         except Exception as e:
             print(f"Warning: could not verify YouTube sign-in state ({e}). Continuing run.")
     
@@ -498,7 +530,7 @@ def scrape_captcha_emails(
                 except Exception:
                     pass
                 try:
-                    driver = start_driver()
+                    driver = start_driver(active_profile_dir)
                 except Exception as restart_err:
                     print(f"Browser restart failed ({restart_err}).")
                     continue
@@ -617,7 +649,7 @@ def scrape_captcha_emails(
                 except Exception:
                     pass
                 try:
-                    driver = start_driver()
+                    driver = start_driver(active_profile_dir)
                 except Exception:
                     pass
 
