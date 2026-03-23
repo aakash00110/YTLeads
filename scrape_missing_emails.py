@@ -26,6 +26,7 @@ CAPTCHA_WAIT_SECONDS = int(os.environ.get("CAPTCHA_WAIT_SECONDS", "20"))
 MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
 CLONE_PROFILE_SNAPSHOT = os.environ.get("CLONE_PROFILE_SNAPSHOT", "0") == "1"
 ATTACH_REAL_CHROME = os.environ.get("ATTACH_REAL_CHROME", "0") == "1"
+PROFILE_FALLBACK_ENABLED = os.environ.get("PROFILE_FALLBACK_ENABLED", "0") == "1"
 
 def _is_profile_dir_name(name):
     n = (name or "").strip()
@@ -597,8 +598,11 @@ def scrape_captcha_emails(
         options.add_argument('--disable-extensions')
         options.add_argument('--disable-software-rasterizer')
         options.add_argument('--disable-features=VizDisplayCompositor')
+        options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--window-size=1920,1080')
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
         if mac_chrome:
             options.binary_location = mac_chrome
         elif chromium_path:
@@ -699,46 +703,51 @@ def scrape_captcha_emails(
             driver.get("https://www.youtube.com/")
             time.sleep(2)
             if not _is_logged_in_youtube(driver):
-                print("Warning: selected profile appears signed out. Trying other local Chrome profiles...")
+                print("Warning: selected profile appears signed out.")
+                if not PROFILE_FALLBACK_ENABLED:
+                    print("Profile fallback is disabled. Staying on selected profile.")
+                else:
+                    print("Trying other local Chrome profiles...")
                 candidates = []
                 if profile_user_data_dir and os.path.isdir(profile_user_data_dir):
                     for name in sorted(os.listdir(profile_user_data_dir)):
                         p = os.path.join(profile_user_data_dir, name)
                         if os.path.isdir(p) and _is_profile_dir_name(name):
                             candidates.append(name)
-                candidates = sorted(
-                    candidates,
-                    key=lambda n: (
-                        0 if _profile_has_google_session(profile_user_data_dir, n) else 1,
-                        n,
-                    ),
-                )
-                if active_profile_dir in candidates:
-                    candidates = [active_profile_dir] + [c for c in candidates if c != active_profile_dir]
-                switched = False
-                for cand in candidates:
-                    if cand == active_profile_dir:
-                        continue
-                    print(f"Trying fallback profile: {cand}")
-                    try:
-                        driver.quit()
-                    except Exception:
-                        pass
-                    try:
-                        driver = start_driver(cand)
-                        driver.get("https://www.youtube.com/")
-                        time.sleep(2)
-                        logged_in = _is_logged_in_youtube(driver)
-                        print(f"Fallback profile check {cand}: logged_in={logged_in}")
-                        if logged_in:
-                            active_profile_dir = cand
-                            switched = True
-                            print(f"Using fallback signed-in profile: {cand}")
-                            break
-                    except Exception:
-                        continue
-                if not switched:
-                    print("No signed-in Chrome profile detected. Continuing in current session.")
+                if PROFILE_FALLBACK_ENABLED:
+                    candidates = sorted(
+                        candidates,
+                        key=lambda n: (
+                            0 if _profile_has_google_session(profile_user_data_dir, n) else 1,
+                            n,
+                        ),
+                    )
+                    if active_profile_dir in candidates:
+                        candidates = [active_profile_dir] + [c for c in candidates if c != active_profile_dir]
+                    switched = False
+                    for cand in candidates:
+                        if cand == active_profile_dir:
+                            continue
+                        print(f"Trying fallback profile: {cand}")
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
+                        try:
+                            driver = start_driver(cand)
+                            driver.get("https://www.youtube.com/")
+                            time.sleep(2)
+                            logged_in = _is_logged_in_youtube(driver)
+                            print(f"Fallback profile check {cand}: logged_in={logged_in}")
+                            if logged_in:
+                                active_profile_dir = cand
+                                switched = True
+                                print(f"Using fallback signed-in profile: {cand}")
+                                break
+                        except Exception:
+                            continue
+                    if not switched:
+                        print("No signed-in Chrome profile detected. Continuing in current session.")
         except Exception as e:
             print(f"Warning: could not verify YouTube sign-in state ({e}). Continuing run.")
     try:

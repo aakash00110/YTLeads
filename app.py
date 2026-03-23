@@ -190,6 +190,7 @@ def run_email_reveal_bot(
     env["MAX_ATTEMPTS_PER_CHANNEL"] = str(int(max_attempts_per_channel))
     env["CLONE_PROFILE_SNAPSHOT"] = "1" if clone_profile_snapshot else "0"
     env["ATTACH_REAL_CHROME"] = "1" if attach_real_chrome else "0"
+    env["PROFILE_FALLBACK_ENABLED"] = "0"
     return cmd, env
 
 # Sidebar for Settings
