@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>YT Email Revealer</title>
+  <style>
+    body { font-family: Arial, sans-serif; width: 320px; margin: 12px; }
+    h3 { margin: 0 0 10px; font-size: 16px; }
+    label { font-size: 12px; display: block; margin-bottom: 6px; color: #444; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; margin-bottom: 10px; }
+    button { width: 100%; padding: 10px; margin-bottom: 8px; border: 0; border-radius: 6px; cursor: pointer; }
+    #saveKey { background: #e5e7eb; }
+    #runCurrent { background: #ef4444; color: #fff; }
+    #status { font-size: 12px; white-space: pre-wrap; color: #111; margin-top: 6px; min-height: 36px; }
+  </style>
+</head>
+<body>
+  <h3>YT View Email Revealer</h3>
+  <label>2Captcha API Key</label>
+  <input id="apiKey" type="password" placeholder="Enter 2Captcha key">
+  <button id="saveKey">Save Key</button>
+  <button id="runCurrent">Run On Current Channel</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
