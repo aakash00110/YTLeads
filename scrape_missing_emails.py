@@ -27,6 +27,16 @@ MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
 CLONE_PROFILE_SNAPSHOT = os.environ.get("CLONE_PROFILE_SNAPSHOT", "0") == "1"
 ATTACH_REAL_CHROME = os.environ.get("ATTACH_REAL_CHROME", "0") == "1"
 
+def _is_profile_dir_name(name):
+    n = (name or "").strip()
+    if n == "Default":
+        return True
+    if re.fullmatch(r"Profile ?\d+", n):
+        return True
+    if re.fullmatch(r"Person ?\d+", n):
+        return True
+    return False
+
 def _normalize_input_path(text):
     v = (text or "").strip()
     if v.startswith("- "):
@@ -136,7 +146,7 @@ def _resolve_best_signed_in_profile(preferred_dir, preferred_profile):
         try:
             for n in sorted(os.listdir(root)):
                 p = os.path.join(root, n)
-                if os.path.isdir(p) and (n == "Default" or n.startswith("Profile ")):
+                if os.path.isdir(p) and _is_profile_dir_name(n):
                     if n not in names:
                         names.append(n)
         except Exception:
@@ -551,6 +561,7 @@ def scrape_captcha_emails(
         print("Signed-in profile is required but the configured Chrome profile folder does not exist.")
         return
     profile_snapshot_root = None
+    extra_snapshot_roots = []
     if profile_user_data_dir and profile_directory and CLONE_PROFILE_SNAPSHOT:
         profile_snapshot_root = _prepare_profile_snapshot(profile_user_data_dir, profile_directory)
         if profile_snapshot_root:
@@ -622,7 +633,39 @@ def scrape_captcha_emails(
         if sys.platform == "darwin":
             if profile_user_data_dir and active_profile_dir:
                 print("Using direct webdriver launch with selected profile.")
-            return webdriver.Chrome(options=options)
+            try:
+                return webdriver.Chrome(options=options)
+            except Exception as direct_err:
+                msg = str(direct_err).lower()
+                should_retry_snapshot = (
+                    profile_user_data_dir
+                    and active_profile_dir
+                    and ("failed to write prefs file" in msg or "session not created" in msg)
+                )
+                if should_retry_snapshot:
+                    retry_root = _prepare_profile_snapshot(profile_user_data_dir, active_profile_dir)
+                    if retry_root:
+                        extra_snapshot_roots.append(retry_root)
+                        retry_options = webdriver.ChromeOptions()
+                        if is_headless:
+                            retry_options.add_argument('--headless=new')
+                        retry_options.add_argument('--no-sandbox')
+                        retry_options.add_argument('--disable-dev-shm-usage')
+                        retry_options.add_argument('--disable-gpu')
+                        retry_options.add_argument('--disable-extensions')
+                        retry_options.add_argument('--disable-software-rasterizer')
+                        retry_options.add_argument('--disable-features=VizDisplayCompositor')
+                        retry_options.add_argument('--window-size=1920,1080')
+                        retry_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+                        if mac_chrome:
+                            retry_options.binary_location = mac_chrome
+                        elif chromium_path:
+                            retry_options.binary_location = chromium_path
+                        retry_options.add_argument(f"--user-data-dir={retry_root}")
+                        retry_options.add_argument(f"--profile-directory={active_profile_dir}")
+                        print(f"Direct profile launch failed, retrying with writable snapshot: {retry_root}/{active_profile_dir}")
+                        return webdriver.Chrome(options=retry_options)
+                raise
         if chromedriver_path:
             service = Service(chromedriver_path)
             return webdriver.Chrome(service=service, options=options)
@@ -634,7 +677,7 @@ def scrape_captcha_emails(
             candidates = []
             for name in sorted(os.listdir(profile_user_data_dir)):
                 p = os.path.join(profile_user_data_dir, name)
-                if os.path.isdir(p) and (name == "Default" or name.startswith("Profile ")):
+                if os.path.isdir(p) and _is_profile_dir_name(name):
                     candidates.append(name)
             preferred = [c for c in candidates if _profile_has_google_session(profile_user_data_dir, c)]
             if preferred:
@@ -661,7 +704,7 @@ def scrape_captcha_emails(
                 if profile_user_data_dir and os.path.isdir(profile_user_data_dir):
                     for name in sorted(os.listdir(profile_user_data_dir)):
                         p = os.path.join(profile_user_data_dir, name)
-                        if os.path.isdir(p) and (name == "Default" or name.startswith("Profile ")):
+                        if os.path.isdir(p) and _is_profile_dir_name(name):
                             candidates.append(name)
                 candidates = sorted(
                     candidates,
@@ -882,6 +925,11 @@ def scrape_captcha_emails(
     if profile_snapshot_root:
         try:
             shutil.rmtree(profile_snapshot_root, ignore_errors=True)
+        except Exception:
+            pass
+    for r in extra_snapshot_roots:
+        try:
+            shutil.rmtree(r, ignore_errors=True)
         except Exception:
             pass
     

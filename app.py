@@ -7,6 +7,7 @@ import sys
 import io
 import json
 import sqlite3
+import re
 from youtube_lead_extractor import get_channel_leads
 
 APP_BUILD = "2026-03-23-b930a27"
@@ -118,6 +119,16 @@ def _profile_cookie_score(user_data_dir, profile_dir):
     return score
 
 def resolve_best_chrome_profile(preferred_user_data_dir="", preferred_profile_dir=""):
+    def is_profile_dir_name(name):
+        n = (name or "").strip()
+        if n == "Default":
+            return True
+        if re.fullmatch(r"Profile ?\d+", n):
+            return True
+        if re.fullmatch(r"Person ?\d+", n):
+            return True
+        return False
+
     roots = []
     for r in [
         preferred_user_data_dir,
@@ -136,7 +147,7 @@ def resolve_best_chrome_profile(preferred_user_data_dir="", preferred_profile_di
         try:
             for n in sorted(os.listdir(root)):
                 p = os.path.join(root, n)
-                if os.path.isdir(p) and (n == "Default" or n.startswith("Profile ")):
+                if os.path.isdir(p) and is_profile_dir_name(n):
                     if n not in names:
                         names.append(n)
         except Exception:
