@@ -317,9 +317,26 @@ def _is_logged_in_youtube(driver):
     url = (driver.current_url or "").lower()
     if "servicelogin" in url or "accounts.google.com" in url:
         return False
+    try:
+        avatar_buttons = driver.find_elements(By.CSS_SELECTOR, "button#avatar-btn, ytd-topbar-menu-button-renderer #avatar-btn")
+        if avatar_buttons:
+            return True
+    except Exception:
+        pass
+    try:
+        sign_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='ServiceLogin'], ytd-button-renderer a[href*='ServiceLogin']")
+        if sign_links:
+            return False
+    except Exception:
+        pass
     if _is_sign_in_required(driver):
         return False
-    return True
+    src = (driver.page_source or "").lower()
+    if '"loggedin":true' in src or '"isloggedin":true' in src:
+        return True
+    if "sign in" in src and "avatar-btn" not in src:
+        return False
+    return False
 
 def inject_recaptcha_token(driver, token):
     driver.execute_script(
@@ -501,7 +518,9 @@ def scrape_captcha_emails(
                         driver = start_driver(cand)
                         driver.get("https://www.youtube.com/")
                         time.sleep(2)
-                        if _is_logged_in_youtube(driver):
+                        logged_in = _is_logged_in_youtube(driver)
+                        print(f"Fallback profile check {cand}: logged_in={logged_in}")
+                        if logged_in:
                             active_profile_dir = cand
                             switched = True
                             print(f"Using fallback signed-in profile: {cand}")
