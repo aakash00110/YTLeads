@@ -234,6 +234,15 @@ def _is_sign_in_required(driver):
     ]
     return any(m in text for m in markers)
 
+def _is_logged_in_youtube(driver):
+    if _is_sign_in_required(driver):
+        return False
+    try:
+        driver.find_element(By.XPATH, "//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'sign in')]")
+        return False
+    except Exception:
+        return True
+
 def inject_recaptcha_token(driver, token):
     driver.execute_script(
         """
@@ -263,6 +272,7 @@ def scrape_captcha_emails(
     capsolver_key=None,
     chrome_user_data_dir=None,
     chrome_profile_dir=None,
+    require_signed_in_profile=False,
 ):
     leads = []
     try:
@@ -308,6 +318,12 @@ def scrape_captcha_emails(
     options.add_argument('--remote-debugging-port=9222')
     profile_user_data_dir = (chrome_user_data_dir or os.environ.get("CHROME_USER_DATA_DIR", "")).strip()
     profile_directory = (chrome_profile_dir or os.environ.get("CHROME_PROFILE_DIR", "")).strip()
+    if require_signed_in_profile and (not profile_user_data_dir or not profile_directory):
+        print("Signed-in profile is required but Chrome profile path is missing.")
+        return
+    if require_signed_in_profile and (not os.path.isdir(profile_user_data_dir) or not os.path.isdir(os.path.join(profile_user_data_dir, profile_directory))):
+        print("Signed-in profile is required but the configured Chrome profile folder does not exist.")
+        return
     if profile_user_data_dir:
         print(f"Using Chrome user-data-dir: {profile_user_data_dir}")
         options.add_argument(f"--user-data-dir={profile_user_data_dir}")
@@ -343,6 +359,24 @@ def scrape_captcha_emails(
         print(f"Failed to start Chrome driver: {e}")
         print("If running on Streamlit Cloud, make sure packages.txt is configured with chromium and chromium-driver.")
         return
+    if require_signed_in_profile:
+        try:
+            driver.get("https://www.youtube.com/")
+            time.sleep(2)
+            if not _is_logged_in_youtube(driver):
+                print("Configured Chrome profile is not signed into YouTube. Stopping run.")
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            print(f"Could not verify YouTube sign-in state ({e}). Stopping run.")
+            try:
+                driver.quit()
+            except Exception:
+                pass
+            return
     
     processed = 0
     found_count = 0
@@ -503,6 +537,7 @@ if __name__ == '__main__':
     parser.add_argument("--capsolver", help="CapSolver API key for automated solving")
     parser.add_argument("--chrome-user-data-dir", help="Chrome user data dir path")
     parser.add_argument("--chrome-profile-dir", help="Chrome profile directory, e.g. Default or Profile 1")
+    parser.add_argument("--require-signed-in-profile", action="store_true", help="Require a signed-in YouTube Chrome profile")
     args = parser.parse_args()
     
     scrape_captcha_emails(
@@ -513,4 +548,5 @@ if __name__ == '__main__':
         args.capsolver,
         chrome_user_data_dir=args.chrome_user_data_dir,
         chrome_profile_dir=args.chrome_profile_dir,
+        require_signed_in_profile=args.require_signed_in_profile,
     )

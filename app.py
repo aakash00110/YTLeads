@@ -66,6 +66,7 @@ def run_email_reveal_bot(
     email_wait_seconds=10,
     captcha_wait_seconds=20,
     max_attempts_per_channel=2,
+    require_signed_in_profile=True,
 ):
     cmd = [sys.executable, "scrape_missing_emails.py", "--input", input_csv, "--output", output_csv]
     if twocaptcha_key:
@@ -77,6 +78,8 @@ def run_email_reveal_bot(
         cmd.extend(["--chrome-user-data-dir", chrome_user_data_dir])
     if chrome_profile_dir:
         cmd.extend(["--chrome-profile-dir", chrome_profile_dir])
+    if require_signed_in_profile:
+        cmd.append("--require-signed-in-profile")
     env["FAST_SKIP_SECONDS"] = str(int(fast_skip_seconds))
     env["EMAIL_WAIT_SECONDS"] = str(int(email_wait_seconds))
     env["CAPTCHA_WAIT_SECONDS"] = str(int(captcha_wait_seconds))
@@ -106,7 +109,7 @@ with st.sidebar:
     if twocaptcha_key_input:
         st.session_state["twocaptcha_key"] = twocaptcha_key_input
     st.markdown("---")
-    st.markdown("### Signed-in Browser (Optional)")
+    st.markdown("### Signed-in Browser (Required for Step 2)")
     chrome_user_data_dir = st.text_input(
         "Chrome User Data Dir",
         value=st.session_state.get("chrome_user_data_dir", "") or os.environ.get("CHROME_USER_DATA_DIR", ""),
@@ -232,6 +235,17 @@ with tab2:
                 if not twocaptcha_key:
                     st.error("⚠️ Please enter your 2Captcha API Key in the sidebar before starting Step 2.")
                     st.stop()
+                profile_user_data_dir = st.session_state.get("chrome_user_data_dir", "").strip()
+                profile_dir = st.session_state.get("chrome_profile_dir", "").strip()
+                if not profile_user_data_dir or not profile_dir:
+                    st.error("⚠️ Signed-in profile is required. Please set both Chrome User Data Dir and Chrome Profile Dir.")
+                    st.stop()
+                if not os.path.isdir(profile_user_data_dir):
+                    st.error(f"⚠️ Chrome User Data Dir not found: {profile_user_data_dir}")
+                    st.stop()
+                if not os.path.isdir(os.path.join(profile_user_data_dir, profile_dir)):
+                    st.error(f"⚠️ Chrome profile folder not found: {os.path.join(profile_user_data_dir, profile_dir)}")
+                    st.stop()
                 st.info("🤖 2Captcha key detected. Running auto reveal...")
                 spinner_text = "Bot is running... moving channel by channel."
                 
@@ -247,6 +261,7 @@ with tab2:
                             email_wait_seconds=st.session_state.get("email_wait_seconds", 10),
                             captcha_wait_seconds=st.session_state.get("captcha_wait_seconds", 20),
                             max_attempts_per_channel=st.session_state.get("max_attempts_per_channel", 2),
+                            require_signed_in_profile=True,
                         )
                             
                         process = subprocess.Popen(
