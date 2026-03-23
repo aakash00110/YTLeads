@@ -86,6 +86,7 @@ def run_email_reveal_bot(
     captcha_wait_seconds=20,
     max_attempts_per_channel=2,
     require_signed_in_profile=True,
+    clone_profile_snapshot=False,
 ):
     cmd = [sys.executable, "scrape_missing_emails.py", "--input", input_csv, "--output", output_csv]
     if twocaptcha_key:
@@ -103,6 +104,7 @@ def run_email_reveal_bot(
     env["EMAIL_WAIT_SECONDS"] = str(int(email_wait_seconds))
     env["CAPTCHA_WAIT_SECONDS"] = str(int(captcha_wait_seconds))
     env["MAX_ATTEMPTS_PER_CHANNEL"] = str(int(max_attempts_per_channel))
+    env["CLONE_PROFILE_SNAPSHOT"] = "1" if clone_profile_snapshot else "0"
     return cmd, env
 
 # Sidebar for Settings
@@ -148,10 +150,16 @@ with st.sidebar:
     email_wait_seconds = st.number_input("Email Wait Seconds", min_value=3, max_value=60, value=int(st.session_state.get("email_wait_seconds", 10)))
     captcha_wait_seconds = st.number_input("Captcha Wait Seconds", min_value=5, max_value=120, value=int(st.session_state.get("captcha_wait_seconds", 20)))
     max_attempts_per_channel = st.number_input("Max Attempts Per Channel", min_value=1, max_value=5, value=int(st.session_state.get("max_attempts_per_channel", 2)))
+    clone_profile_snapshot = st.checkbox(
+        "Use Profile Snapshot (Experimental)",
+        value=bool(st.session_state.get("clone_profile_snapshot", False)),
+        help="Off = direct signed profile mode (recommended). On = cloned profile snapshot mode.",
+    )
     st.session_state["fast_skip_seconds"] = int(fast_skip_seconds)
     st.session_state["email_wait_seconds"] = int(email_wait_seconds)
     st.session_state["captcha_wait_seconds"] = int(captcha_wait_seconds)
     st.session_state["max_attempts_per_channel"] = int(max_attempts_per_channel)
+    st.session_state["clone_profile_snapshot"] = bool(clone_profile_snapshot)
         
     st.markdown("---")
     st.markdown("### How to use:")
@@ -315,6 +323,7 @@ with tab2:
                             captcha_wait_seconds=st.session_state.get("captcha_wait_seconds", 20),
                             max_attempts_per_channel=st.session_state.get("max_attempts_per_channel", 2),
                             require_signed_in_profile=True,
+                            clone_profile_snapshot=st.session_state.get("clone_profile_snapshot", False),
                         )
                             
                         process = subprocess.Popen(

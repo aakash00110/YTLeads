@@ -22,7 +22,7 @@ FAST_SKIP_SECONDS = int(os.environ.get("FAST_SKIP_SECONDS", "6"))
 EMAIL_WAIT_SECONDS = int(os.environ.get("EMAIL_WAIT_SECONDS", "10"))
 CAPTCHA_WAIT_SECONDS = int(os.environ.get("CAPTCHA_WAIT_SECONDS", "20"))
 MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
-CLONE_PROFILE_SNAPSHOT = os.environ.get("CLONE_PROFILE_SNAPSHOT", "1") == "1"
+CLONE_PROFILE_SNAPSHOT = os.environ.get("CLONE_PROFILE_SNAPSHOT", "0") == "1"
 
 def _normalize_input_path(text):
     v = (text or "").strip()
@@ -407,6 +407,10 @@ def scrape_captcha_emails(
         if profile_snapshot_root:
             print(f"Using cloned Chrome profile snapshot: {profile_snapshot_root}/{profile_directory}")
             profile_user_data_dir = profile_snapshot_root
+        else:
+            print("Profile snapshot failed, falling back to direct profile mode.")
+    elif profile_user_data_dir and profile_directory:
+        print("Using direct signed-in Chrome profile mode.")
 
     if profile_user_data_dir:
         print(f"Using Chrome user-data-dir: {profile_user_data_dir}")
