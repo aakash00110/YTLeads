@@ -18,6 +18,10 @@ from selenium.common.exceptions import WebDriverException
 import tempfile
 
 EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+FAST_SKIP_SECONDS = int(os.environ.get("FAST_SKIP_SECONDS", "6"))
+EMAIL_WAIT_SECONDS = int(os.environ.get("EMAIL_WAIT_SECONDS", "10"))
+CAPTCHA_WAIT_SECONDS = int(os.environ.get("CAPTCHA_WAIT_SECONDS", "20"))
+MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
 
 def is_valid_email(email):
     if not email or '@' not in email:
@@ -46,7 +50,7 @@ def is_valid_email(email):
             return False
     return True
 
-def solve_recaptcha_2captcha(api_key, sitekey, page_url):
+def solve_recaptcha_2captcha(api_key, sitekey, page_url, max_wait_seconds=60):
     submit = requests.post(
         "https://2captcha.com/in.php",
         data={
@@ -61,7 +65,8 @@ def solve_recaptcha_2captcha(api_key, sitekey, page_url):
     if submit.get("status") != 1:
         raise Exception(f"2Captcha submit failed: {submit}")
     captcha_id = submit.get("request")
-    for _ in range(60):
+    polls = max(1, int(max_wait_seconds / 5))
+    for _ in range(polls):
         time.sleep(5)
         res = requests.get(
             "https://2captcha.com/res.php",
@@ -280,8 +285,15 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
     options.add_argument('--remote-debugging-port=9222')
-    user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
-    options.add_argument(f'--user-data-dir={user_data_dir}')
+    profile_user_data_dir = os.environ.get("CHROME_USER_DATA_DIR", "").strip()
+    profile_directory = os.environ.get("CHROME_PROFILE_DIR", "").strip()
+    if profile_user_data_dir:
+        options.add_argument(f"--user-data-dir={profile_user_data_dir}")
+        if profile_directory:
+            options.add_argument(f"--profile-directory={profile_directory}")
+    else:
+        user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
+        options.add_argument(f'--user-data-dir={user_data_dir}')
 
     chromium_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
     if chromium_path:
@@ -321,7 +333,7 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
         print(f"\nProcessing: {lead.get('Channel Name')} ({target_url})")
         success = False
 
-        for attempt in range(1, 4):
+        for attempt in range(1, MAX_ATTEMPTS_PER_CHANNEL + 1):
             try:
                 driver.get(target_url)
                 time.sleep(2)
@@ -365,18 +377,26 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                     except Exception:
                         continue
 
+                has_view_flow = False
                 if view_btn:
+                    has_view_flow = True
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_btn)
                     time.sleep(0.4)
                     view_btn.click()
                 else:
-                    print("View email button not found, checking captcha/email visibility.")
+                    print("No view-email button. Fast-skip checks only.")
 
                 if twocaptcha_key or anticaptcha_key or capsolver_key:
                     sitekey = _find_recaptcha_sitekey(driver)
                     if sitekey:
+                        has_view_flow = True
                         if twocaptcha_key:
-                            token = solve_recaptcha_2captcha(twocaptcha_key, sitekey, driver.current_url)
+                            token = solve_recaptcha_2captcha(
+                                twocaptcha_key,
+                                sitekey,
+                                driver.current_url,
+                                max_wait_seconds=CAPTCHA_WAIT_SECONDS
+                            )
                         elif anticaptcha_key:
                             token = solve_recaptcha_anticaptcha(anticaptcha_key, sitekey, driver.current_url)
                         else:
@@ -399,7 +419,8 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
                         if submit_btn:
                             submit_btn.click()
 
-                email = _wait_for_any_email(driver, timeout_s=45)
+                wait_s = EMAIL_WAIT_SECONDS if has_view_flow else FAST_SKIP_SECONDS
+                email = _wait_for_any_email(driver, timeout_s=wait_s)
                 if email:
                     print(f"Success! Found email: {email}")
                     lead["Emails Found"] = email
