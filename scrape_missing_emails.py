@@ -7,6 +7,7 @@ import re
 import urllib.parse as urlparse
 import shutil
 import sqlite3
+import subprocess
 
 from selenium import webdriver
 import requests
@@ -34,6 +35,32 @@ def _normalize_input_path(text):
 
 def _prepare_profile_snapshot(user_data_dir, profile_dir):
     if not user_data_dir or not profile_dir:
+        return None
+    src_profile = os.path.join(user_data_dir, profile_dir)
+    if not os.path.isdir(src_profile):
+        return None
+    snapshot_root = tempfile.mkdtemp(prefix="chrome-profile-snapshot-")
+    dst_profile = os.path.join(snapshot_root, profile_dir)
+    try:
+        shutil.copytree(
+            src_profile,
+            dst_profile,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "Cache", "Code Cache", "GPUCache", "Service Worker", "GrShaderCache",
+                "ShaderCache", "Crashpad", "BrowserMetrics", "optimization_guide_model_store"
+            ),
+        )
+        local_state_src = os.path.join(user_data_dir, "Local State")
+        local_state_dst = os.path.join(snapshot_root, "Local State")
+        if os.path.exists(local_state_src):
+            shutil.copy2(local_state_src, local_state_dst)
+        return snapshot_root
+    except Exception:
+        try:
+            shutil.rmtree(snapshot_root, ignore_errors=True)
+        except Exception:
+            pass
         return None
 
 def _profile_has_google_session(user_data_dir, profile_dir):
@@ -67,32 +94,29 @@ def _profile_has_google_session(user_data_dir, profile_dir):
                 pass
     except Exception:
         return False
-    src_profile = os.path.join(user_data_dir, profile_dir)
-    if not os.path.isdir(src_profile):
-        return None
-    snapshot_root = tempfile.mkdtemp(prefix="chrome-profile-snapshot-")
-    dst_profile = os.path.join(snapshot_root, profile_dir)
+
+def _launch_mac_chrome_profile(user_data_dir, profile_dir, debugging_port=9222):
+    app_path = "/Applications/Google Chrome.app"
+    if not os.path.exists(app_path):
+        return False
     try:
-        shutil.copytree(
-            src_profile,
-            dst_profile,
-            dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns(
-                "Cache", "Code Cache", "GPUCache", "Service Worker", "GrShaderCache",
-                "ShaderCache", "Crashpad", "BrowserMetrics", "optimization_guide_model_store"
-            ),
+        subprocess.Popen(
+            [
+                "open", "-na", app_path, "--args",
+                f"--remote-debugging-port={debugging_port}",
+                f"--user-data-dir={user_data_dir}",
+                f"--profile-directory={profile_dir}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "https://www.youtube.com/account",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        local_state_src = os.path.join(user_data_dir, "Local State")
-        local_state_dst = os.path.join(snapshot_root, "Local State")
-        if os.path.exists(local_state_src):
-            shutil.copy2(local_state_src, local_state_dst)
-        return snapshot_root
+        time.sleep(2)
+        return True
     except Exception:
-        try:
-            shutil.rmtree(snapshot_root, ignore_errors=True)
-        except Exception:
-            pass
-        return None
+        return False
 
 def _macos_google_chrome_binary():
     candidates = [
@@ -505,6 +529,18 @@ def scrape_captcha_emails(
 
     def start_driver(active_profile_dir):
         options = build_options(active_profile_dir)
+        if sys.platform == "darwin" and profile_user_data_dir and active_profile_dir:
+            launched = _launch_mac_chrome_profile(profile_user_data_dir, active_profile_dir, debugging_port=9222)
+            if launched:
+                attach_options = webdriver.ChromeOptions()
+                attach_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+                if mac_chrome:
+                    attach_options.binary_location = mac_chrome
+                try:
+                    print(f"Attaching to existing Chrome debug session for profile: {active_profile_dir}")
+                    return webdriver.Chrome(options=attach_options)
+                except Exception as attach_err:
+                    print(f"Attach mode failed ({attach_err}), falling back to direct launch.")
         if sys.platform == "darwin":
             return webdriver.Chrome(options=options)
         if chromedriver_path:
