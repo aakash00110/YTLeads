@@ -255,7 +255,15 @@ def inject_recaptcha_token(driver, token):
         """
     , token)
 
-def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptcha_key=None, capsolver_key=None):
+def scrape_captcha_emails(
+    input_csv,
+    output_csv,
+    twocaptcha_key=None,
+    anticaptcha_key=None,
+    capsolver_key=None,
+    chrome_user_data_dir=None,
+    chrome_profile_dir=None,
+):
     leads = []
     try:
         with open(input_csv, 'r', encoding='utf-8') as f:
@@ -298,14 +306,17 @@ def scrape_captcha_emails(input_csv, output_csv, twocaptcha_key=None, anticaptch
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
     options.add_argument('--remote-debugging-port=9222')
-    profile_user_data_dir = os.environ.get("CHROME_USER_DATA_DIR", "").strip()
-    profile_directory = os.environ.get("CHROME_PROFILE_DIR", "").strip()
+    profile_user_data_dir = (chrome_user_data_dir or os.environ.get("CHROME_USER_DATA_DIR", "")).strip()
+    profile_directory = (chrome_profile_dir or os.environ.get("CHROME_PROFILE_DIR", "")).strip()
     if profile_user_data_dir:
+        print(f"Using Chrome user-data-dir: {profile_user_data_dir}")
         options.add_argument(f"--user-data-dir={profile_user_data_dir}")
         if profile_directory:
+            print(f"Using Chrome profile-directory: {profile_directory}")
             options.add_argument(f"--profile-directory={profile_directory}")
     else:
         user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
+        print(f"Using temporary Chrome profile: {user_data_dir}")
         options.add_argument(f'--user-data-dir={user_data_dir}')
 
     chromium_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
@@ -490,6 +501,16 @@ if __name__ == '__main__':
     parser.add_argument("--twocaptcha", help="2Captcha API key for automated solving")
     parser.add_argument("--anticaptcha", help="Anti-Captcha API key for automated solving")
     parser.add_argument("--capsolver", help="CapSolver API key for automated solving")
+    parser.add_argument("--chrome-user-data-dir", help="Chrome user data dir path")
+    parser.add_argument("--chrome-profile-dir", help="Chrome profile directory, e.g. Default or Profile 1")
     args = parser.parse_args()
     
-    scrape_captcha_emails(args.input, args.output, args.twocaptcha, args.anticaptcha, args.capsolver)
+    scrape_captcha_emails(
+        args.input,
+        args.output,
+        args.twocaptcha,
+        args.anticaptcha,
+        args.capsolver,
+        chrome_user_data_dir=args.chrome_user_data_dir,
+        chrome_profile_dir=args.chrome_profile_dir,
+    )

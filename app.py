@@ -74,9 +74,9 @@ def run_email_reveal_bot(
         raise Exception("No Auto-CAPTCHA API key provided for the selected service.")
     env = os.environ.copy()
     if chrome_user_data_dir:
-        env["CHROME_USER_DATA_DIR"] = chrome_user_data_dir
+        cmd.extend(["--chrome-user-data-dir", chrome_user_data_dir])
     if chrome_profile_dir:
-        env["CHROME_PROFILE_DIR"] = chrome_profile_dir
+        cmd.extend(["--chrome-profile-dir", chrome_profile_dir])
     env["FAST_SKIP_SECONDS"] = str(int(fast_skip_seconds))
     env["EMAIL_WAIT_SECONDS"] = str(int(email_wait_seconds))
     env["CAPTCHA_WAIT_SECONDS"] = str(int(captcha_wait_seconds))
