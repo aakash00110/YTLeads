@@ -266,21 +266,66 @@ def process_channels(youtube, channel_ids=None, handles=None, usernames=None, sc
     leads = []
     try:
         items = []
+        seen_ids = set()
+
         if channel_ids:
             for i in range(0, len(channel_ids), 50):
-                batch = channel_ids[i:i+50]
-                resp = youtube.channels().list(id=",".join(batch), part="snippet,statistics,contentDetails").execute()
-                items.extend(resp.get("items", []))
+                batch = [b for b in channel_ids[i:i+50] if b and re.fullmatch(r'[A-Za-z0-9_-]{10,40}', b)]
+                if not batch:
+                    continue
+                try:
+                    resp = youtube.channels().list(id=",".join(batch), part="snippet,statistics,contentDetails").execute()
+                    for it in resp.get("items", []):
+                        cid = it.get("id")
+                        if cid and cid not in seen_ids:
+                            seen_ids.add(cid)
+                            items.append(it)
+                except HttpError:
+                    for cid in batch:
+                        try:
+                            r = youtube.channels().list(id=cid, part="snippet,statistics,contentDetails").execute()
+                            for it in r.get("items", []):
+                                rcid = it.get("id")
+                                if rcid and rcid not in seen_ids:
+                                    seen_ids.add(rcid)
+                                    items.append(it)
+                        except HttpError:
+                            continue
 
         if handles:
             for handle in handles:
-                resp = youtube.channels().list(forHandle=handle, part="snippet,statistics,contentDetails").execute()
-                items.extend(resp.get("items", []))
+                h = str(handle or "").strip()
+                if not h:
+                    continue
+                if not h.startswith("@"):
+                    h = "@" + h
+                h = "@" + h[1:].split("/")[0].split("?")[0].strip()
+                if not re.fullmatch(r'@[A-Za-z0-9._-]{2,60}', h):
+                    continue
+                try:
+                    resp = youtube.channels().list(forHandle=h, part="snippet,statistics,contentDetails").execute()
+                    for it in resp.get("items", []):
+                        cid = it.get("id")
+                        if cid and cid not in seen_ids:
+                            seen_ids.add(cid)
+                            items.append(it)
+                except HttpError:
+                    continue
 
         if usernames:
             for un in usernames:
-                resp = youtube.channels().list(forUsername=un, part="snippet,statistics,contentDetails").execute()
-                items.extend(resp.get("items", []))
+                u = str(un or "").strip().split("/")[0].split("?")[0].strip()
+                if not re.fullmatch(r'[A-Za-z0-9._-]{2,80}', u):
+                    continue
+                try:
+                    resp = youtube.channels().list(forUsername=u, part="snippet,statistics,contentDetails").execute()
+                    for it in resp.get("items", []):
+                        cid = it.get("id")
+                        if cid and cid not in seen_ids:
+                            seen_ids.add(cid)
+                            items.append(it)
+                except HttpError:
+                    continue
 
         for channel in items:
             title = channel.get("snippet", {}).get("title", "Unknown")
@@ -395,18 +440,34 @@ def get_channel_leads(api_key, query=None, input_file=None, max_results=10, outp
             with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
                 urls = [line.strip() for line in f if line.strip()]
         
-        # Remove duplicates
-        urls = list(set(urls))
+        cleaned_urls = []
+        seen = set()
+        for u in urls:
+            su = str(u or "").strip().replace('"', '').replace("'", "")
+            if not su:
+                continue
+            if su.startswith("www."):
+                su = "https://" + su
+            if "youtube.com/" not in su and "youtu.be/" not in su:
+                continue
+            su = su.split()[0]
+            if su not in seen:
+                seen.add(su)
+                cleaned_urls.append(su)
+        urls = cleaned_urls
         print(f"Successfully extracted {len(urls)} unique YouTube URLs from the file.")
         
         cids, handles, usernames = [], [], []
         for url in urls:
             if '/channel/' in url:
-                cids.append(url.split('/channel/')[-1].split('/')[0])
+                cid = url.split('/channel/')[-1].split('/')[0].split('?')[0]
+                cids.append(cid)
             elif '/@' in url:
-                handles.append('@' + url.split('/@')[-1].split('/')[0])
+                handle = '@' + url.split('/@')[-1].split('/')[0].split('?')[0]
+                handles.append(handle)
             elif '/user/' in url:
-                usernames.append(url.split('/user/')[-1].split('/')[0])
+                uname = url.split('/user/')[-1].split('/')[0].split('?')[0]
+                usernames.append(uname)
         
         print(f"Processing {len(urls)} existing channels...")
         all_leads.extend(process_channels(youtube, channel_ids=cids, handles=handles, usernames=usernames, scan_videos_count=scan_videos_count, crawl_links=crawl_links, crawl_max_urls=crawl_max_urls))
