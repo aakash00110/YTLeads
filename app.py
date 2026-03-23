@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import sys
 import io
+import json
 from youtube_lead_extractor import get_channel_leads
 
 # Set page config
@@ -44,6 +45,16 @@ st.markdown('<p class="main-header">▶️ YouTube Lead Extractor</p>', unsafe_a
 st.markdown('<p class="sub-header">Find leads based on your ICP and extract their contact info.</p>', unsafe_allow_html=True)
 
 is_streamlit_cloud = os.environ.get("HOME", "").startswith("/home/adminuser") or "streamlit" in os.environ.get("SERVER_SOFTWARE", "").lower()
+
+def detect_last_used_chrome_profile():
+    try:
+        local_state_path = os.path.expanduser("~/Library/Application Support/Google/Chrome/Local State")
+        with open(local_state_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        last_used = (data.get("profile", {}) or {}).get("last_used", "")
+        return last_used or "Default"
+    except Exception:
+        return "Default"
 
 def run_email_reveal_bot(
     twocaptcha_key,
@@ -103,7 +114,7 @@ with st.sidebar:
     )
     chrome_profile_dir = st.text_input(
         "Chrome Profile Dir",
-        value=st.session_state.get("chrome_profile_dir", "Default") or os.environ.get("CHROME_PROFILE_DIR", "Default"),
+        value=st.session_state.get("chrome_profile_dir", "") or os.environ.get("CHROME_PROFILE_DIR", "") or detect_last_used_chrome_profile(),
         help="Examples: Default, Profile 1, Profile 2",
     )
     st.session_state["chrome_user_data_dir"] = chrome_user_data_dir
