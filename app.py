@@ -298,15 +298,6 @@ with tab2:
                 if not os.path.isdir(os.path.join(profile_user_data_dir, profile_dir)):
                     st.error(f"⚠️ Chrome profile folder not found: {os.path.join(profile_user_data_dir, profile_dir)}")
                     st.stop()
-                if sys.platform == "darwin":
-                    lock_candidates = [
-                        os.path.join(profile_user_data_dir, "SingletonLock"),
-                        os.path.join(profile_user_data_dir, "SingletonCookie"),
-                        os.path.join(profile_user_data_dir, "SingletonSocket"),
-                    ]
-                    if any(os.path.exists(p) for p in lock_candidates):
-                        st.error("⚠️ Chrome is currently running. Close all Chrome windows, then retry Step 2.")
-                        st.stop()
                 st.info(f"Using signed-in Chrome profile: {profile_dir}")
                 st.info("🤖 2Captcha key detected. Running auto reveal...")
                 spinner_text = "Bot is running... moving channel by channel."

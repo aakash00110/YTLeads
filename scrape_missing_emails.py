@@ -359,7 +359,6 @@ def scrape_captcha_emails(
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
-    options.add_argument('--remote-debugging-port=9222')
     profile_user_data_dir = _normalize_input_path(chrome_user_data_dir or os.environ.get("CHROME_USER_DATA_DIR", ""))
     profile_directory = (chrome_profile_dir or os.environ.get("CHROME_PROFILE_DIR", "")).strip()
     if profile_directory.startswith("- "):
@@ -377,15 +376,6 @@ def scrape_captcha_emails(
         if profile_directory:
             print(f"Using Chrome profile-directory: {profile_directory}")
             options.add_argument(f"--profile-directory={profile_directory}")
-        if sys.platform == "darwin":
-            lock_candidates = [
-                os.path.join(profile_user_data_dir, "SingletonLock"),
-                os.path.join(profile_user_data_dir, "SingletonCookie"),
-                os.path.join(profile_user_data_dir, "SingletonSocket"),
-            ]
-            if any(os.path.exists(p) for p in lock_candidates):
-                print("Chrome appears to be running (profile lock detected). Close all Chrome windows and retry.")
-                return
     else:
         user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
         print(f"Using temporary Chrome profile: {user_data_dir}")
