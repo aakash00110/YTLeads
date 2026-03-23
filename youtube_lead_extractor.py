@@ -14,6 +14,10 @@ URL_REGEX = r'(?:(?:https?://)|(?:www\.))[^\s<>\]\)"]+'
 
 OBF_AT = r'(?:\(|\[|\{)?\s*at\s*(?:\)|\]|\})?'
 OBF_DOT = r'(?:\(|\[|\{)?\s*dot\s*(?:\)|\]|\})?'
+PUBLIC_EMAIL_PROVIDERS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com",
+    "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com", "gmx.com", "yandex.com"
+}
 
 def is_valid_email(email):
     if not email or '@' not in email:
@@ -41,6 +45,58 @@ def is_valid_email(email):
         if not re.fullmatch(r'[A-Za-z0-9-]+', label):
             return False
     return True
+
+def _email_domain(email):
+    try:
+        return email.rsplit("@", 1)[1].lower()
+    except Exception:
+        return ""
+
+def _root_domain(host_or_domain):
+    if not host_or_domain:
+        return ""
+    h = host_or_domain.lower().split(":")[0].strip(".")
+    if h.startswith("www."):
+        h = h[4:]
+    parts = [p for p in h.split(".") if p]
+    if len(parts) < 2:
+        return h
+    if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in {"co", "com", "org", "net", "gov", "edu"}:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+def _domains_from_urls(urls):
+    out = set()
+    for u in urls or []:
+        try:
+            netloc = urllib.parse.urlparse(u).netloc
+            rd = _root_domain(netloc)
+            if rd:
+                out.add(rd)
+        except Exception:
+            continue
+    return out
+
+def _score_email(email, company_domains):
+    domain = _email_domain(email)
+    if not domain:
+        return 0, "invalid"
+    root = _root_domain(domain)
+    if root in company_domains:
+        return 100, "company_domain_match"
+    if domain in PUBLIC_EMAIL_PROVIDERS:
+        return 80, "public_mail_provider"
+    return 85, "custom_domain"
+
+def _rank_emails(emails, company_domains):
+    scored = []
+    for e in sorted(set(emails)):
+        if not is_valid_email(e):
+            continue
+        score, tag = _score_email(e, company_domains)
+        scored.append((score, tag, e))
+    scored.sort(key=lambda x: (-x[0], x[2]))
+    return scored
 
 def _extract_obfuscated_emails(text):
     if not text:
@@ -259,12 +315,20 @@ def process_channels(youtube, channel_ids=None, handles=None, usernames=None, sc
                 if crawled_emails:
                     sources.add("external_links")
 
+            company_domains = _domains_from_urls(urls)
+            ranked = _rank_emails(emails, company_domains)
+            ranked_emails = [e for _, _, e in ranked]
+            verification_tags = sorted(set(tag for _, tag, _ in ranked))
+            top_email = ranked_emails[0] if ranked_emails else ""
+
             leads.append({
                 "Channel Name": title,
                 "URL": url,
                 "Subscribers": subs,
                 "Total Views": views,
-                "Emails Found": ", ".join(sorted(emails)) if emails else "Not Found",
+                "Emails Found": ", ".join(ranked_emails) if ranked_emails else "Not Found",
+                "Primary Email": top_email,
+                "Email Verification": "; ".join(verification_tags),
                 "Email Sources": "; ".join(sorted(sources)) if sources else "",
                 "Description Snippet": desc[:100].replace("\n", " ") + "..." if desc else "",
             })
