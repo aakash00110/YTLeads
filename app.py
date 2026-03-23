@@ -204,7 +204,12 @@ with tab1:
 
                     if os.path.exists(output_filename):
                         df = pd.read_csv(output_filename)
+                        if "Emails Found" in df.columns:
+                            df["Public Emails Found"] = df["Emails Found"].fillna("")
+                            df["Emails Found"] = "Not Found"
+                            df.to_csv(output_filename, index=False)
                         st.success(f"✅ Step 1 complete. Processed {len(df)} channels.")
+                        st.info("View-email-only mode active: Step 2 will process all channels for hidden email reveal.")
                         st.text("Extraction Logs:")
                         st.code(output_logs)
                         st.dataframe(df, use_container_width=True)
