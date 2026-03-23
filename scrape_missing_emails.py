@@ -64,36 +64,87 @@ def _prepare_profile_snapshot(user_data_dir, profile_dir):
         return None
 
 def _profile_has_google_session(user_data_dir, profile_dir):
+    return _profile_google_session_score(user_data_dir, profile_dir) > 0
+
+def _profile_google_session_score(user_data_dir, profile_dir):
     try:
-        cookie_db = os.path.join(user_data_dir, profile_dir, "Cookies")
-        if not os.path.exists(cookie_db):
-            return False
-        with tempfile.NamedTemporaryFile(prefix="cookie-copy-", suffix=".sqlite", delete=False) as tf:
-            tmp_cookie_db = tf.name
-        shutil.copy2(cookie_db, tmp_cookie_db)
-        try:
-            conn = sqlite3.connect(tmp_cookie_db)
-            cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT COUNT(1) FROM cookies
-                WHERE host_key LIKE '%google.com'
-                AND name IN ('SID', 'HSID', 'SSID', 'APISID', 'SAPISID')
-                """
-            )
-            row = cur.fetchone()
-            return bool(row and row[0] and row[0] > 0)
-        finally:
+        cookie_candidates = [
+            os.path.join(user_data_dir, profile_dir, "Cookies"),
+            os.path.join(user_data_dir, profile_dir, "Network", "Cookies"),
+        ]
+        score = 0
+        for cookie_db in cookie_candidates:
+            if not os.path.exists(cookie_db):
+                continue
+            with tempfile.NamedTemporaryFile(prefix="cookie-copy-", suffix=".sqlite", delete=False) as tf:
+                tmp_cookie_db = tf.name
+            shutil.copy2(cookie_db, tmp_cookie_db)
+            conn = None
             try:
-                conn.close()
-            except Exception:
-                pass
-            try:
-                os.remove(tmp_cookie_db)
-            except Exception:
-                pass
+                conn = sqlite3.connect(tmp_cookie_db)
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT COUNT(1) FROM cookies
+                    WHERE host_key LIKE '%google.com'
+                    AND name IN ('SID', 'HSID', 'SSID', 'APISID', 'SAPISID')
+                    """
+                )
+                row = cur.fetchone()
+                score = max(score, int(row[0] if row and row[0] else 0))
+            finally:
+                try:
+                    if conn:
+                        conn.close()
+                except Exception:
+                    pass
+                try:
+                    os.remove(tmp_cookie_db)
+                except Exception:
+                    pass
+        return score
     except Exception:
-        return False
+        return 0
+
+def _candidate_user_data_dirs(preferred_dir):
+    out = []
+    if preferred_dir:
+        out.append(preferred_dir)
+    out.extend([
+        os.path.expanduser("~/Library/Application Support/Google/Chrome"),
+        os.path.expanduser("~/Library/Application Support/Google/Chrome -"),
+        os.path.expanduser("~/Library/Application Support/Chromium"),
+    ])
+    seen = set()
+    valid = []
+    for p in out:
+        pp = os.path.expanduser((p or "").strip())
+        if not pp or pp in seen:
+            continue
+        seen.add(pp)
+        if os.path.isdir(pp):
+            valid.append(pp)
+    return valid
+
+def _resolve_best_signed_in_profile(preferred_dir, preferred_profile):
+    best = None
+    for root in _candidate_user_data_dirs(preferred_dir):
+        names = []
+        if preferred_profile and os.path.isdir(os.path.join(root, preferred_profile)):
+            names.append(preferred_profile)
+        try:
+            for n in sorted(os.listdir(root)):
+                p = os.path.join(root, n)
+                if os.path.isdir(p) and (n == "Default" or n.startswith("Profile ")):
+                    if n not in names:
+                        names.append(n)
+        except Exception:
+            continue
+        for n in names:
+            score = _profile_google_session_score(root, n)
+            if best is None or score > best[2]:
+                best = (root, n, score)
+    return best
 
 def _launch_mac_chrome_profile(user_data_dir, profile_dir, debugging_port=9222):
     app_path = "/Applications/Google Chrome.app"
@@ -482,6 +533,16 @@ def scrape_captcha_emails(
     if profile_directory.startswith("- "):
         profile_directory = profile_directory[2:].strip()
     profile_directory = profile_directory.strip('"').strip("'")
+    if require_signed_in_profile:
+        best = _resolve_best_signed_in_profile(profile_user_data_dir, profile_directory)
+        if best:
+            best_root, best_profile, best_score = best
+            if best_score > 0:
+                profile_user_data_dir = best_root
+                profile_directory = best_profile
+                print(f"Resolved signed-in profile by cookies: {best_profile} (score={best_score}) in {best_root}")
+            else:
+                print("No profile with Google session cookies detected in known Chrome dirs.")
     if require_signed_in_profile and (not profile_user_data_dir or not profile_directory):
         print("Signed-in profile is required but Chrome profile path is missing.")
         return
