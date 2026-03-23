@@ -323,6 +323,11 @@ with tab2:
                         if os.path.exists("leads_updated.csv"):
                             st.success("✅ Finished scraping! Check the results below.")
                             df_updated = pd.read_csv("leads_updated.csv")
+                            if "Reveal Status" in df_updated.columns:
+                                st.markdown("### Step 2 Summary")
+                                summary = df_updated["Reveal Status"].fillna("unknown").value_counts().reset_index()
+                                summary.columns = ["Reveal Status", "Count"]
+                                st.dataframe(summary, use_container_width=True)
                             st.dataframe(df_updated, use_container_width=True)
                             
                             with open("leads_updated.csv", "rb") as file:
@@ -332,6 +337,22 @@ with tab2:
                                     file_name="youtube_leads_updated.csv",
                                     mime="text/csv",
                                 )
+                            if "Emails Found" in df_updated.columns:
+                                success_df = df_updated[
+                                    df_updated["Emails Found"].notna()
+                                    & (df_updated["Emails Found"] != "Not Found")
+                                    & (df_updated["Emails Found"] != "Sign-in required")
+                                ]
+                                if len(success_df) > 0:
+                                    success_path = "leads_success_only.csv"
+                                    success_df.to_csv(success_path, index=False)
+                                    with open(success_path, "rb") as file:
+                                        st.download_button(
+                                            label="⬇️ Download Success-Only CSV",
+                                            data=file,
+                                            file_name="youtube_leads_success_only.csv",
+                                            mime="text/csv",
+                                        )
                                 
                     except Exception as e:
                         st.error(f"Error running bot: {e}")

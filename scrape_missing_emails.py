@@ -207,6 +207,19 @@ def _save_progress(output_csv, leads):
         writer.writeheader()
         writer.writerows(leads)
 
+def _ensure_output_columns(leads):
+    required = ["Reveal Status", "Reveal Source", "Reveal Error", "Reveal Attempts"]
+    for lead in leads:
+        for col in required:
+            if col not in lead:
+                lead[col] = ""
+
+def _set_reveal_result(lead, status, source="", error="", attempts=0):
+    lead["Reveal Status"] = status
+    lead["Reveal Source"] = source
+    lead["Reveal Error"] = error
+    lead["Reveal Attempts"] = str(attempts)
+
 def _find_recaptcha_sitekey(driver):
     try:
         iframe = driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
@@ -304,11 +317,21 @@ def scrape_captcha_emails(
     except FileNotFoundError:
         print(f"Error: Could not find input file '{input_csv}'")
         return
-            
-    needs_email = [lead for lead in leads if not _has_valid_email_field(lead.get('Emails Found'))]
+
+    _ensure_output_columns(leads)
+    needs_email = []
+    for lead in leads:
+        existing = lead.get("Reveal Status", "").strip().lower()
+        if existing == "revealed" and _has_valid_email_field(lead.get("Emails Found")):
+            continue
+        if not lead.get("URL"):
+            _set_reveal_result(lead, "invalid_url", error="missing_url", attempts=0)
+            continue
+        needs_email.append(lead)
     
     if not needs_email:
         print("All leads already have emails! Nothing to do.")
+        _save_progress(output_csv, leads)
         return
 
     print(f"Found {len(needs_email)} leads missing emails.")
@@ -434,13 +457,20 @@ def scrape_captcha_emails(
         target_url = _normalize_channel_url(url)
         print(f"\nProcessing: {lead.get('Channel Name')} ({target_url})")
         success = False
+        final_status = "failed"
+        final_source = ""
+        final_error = ""
+        attempts_used = 0
 
         for attempt in range(1, MAX_ATTEMPTS_PER_CHANNEL + 1):
+            attempts_used = attempt
             try:
                 driver.get(target_url)
                 time.sleep(2)
             except WebDriverException as nav_err:
                 print(f"Navigation failed attempt {attempt} ({nav_err}). Restarting browser...")
+                final_status = "navigation_failed"
+                final_error = str(nav_err)
                 try:
                     driver.quit()
                 except Exception:
@@ -457,11 +487,15 @@ def scrape_captcha_emails(
                 if existing_email:
                     lead["Emails Found"] = existing_email
                     success = True
+                    final_status = "revealed"
+                    final_source = "already_visible"
                     break
                 if _is_sign_in_required(driver):
                     print("Channel requires YouTube sign-in before email reveal. Skipping.")
                     lead["Emails Found"] = "Sign-in required"
                     success = True
+                    final_status = "sign_in_required"
+                    final_source = "youtube_gate"
                     break
 
                 driver.execute_script("window.scrollTo(0, 0);")
@@ -492,6 +526,8 @@ def scrape_captcha_emails(
                     view_btn.click()
                 else:
                     print("No view-email button. Fast-skip checks only.")
+                    final_status = "no_view_email"
+                    final_source = "channel_about"
 
                 if twocaptcha_key or anticaptcha_key or capsolver_key:
                     sitekey = _find_recaptcha_sitekey(driver)
@@ -525,10 +561,13 @@ def scrape_captcha_emails(
                                 continue
                         if submit_btn:
                             submit_btn.click()
+                        final_source = "captcha_solved"
                     elif _is_sign_in_required(driver):
                         print("Sign-in wall detected. 2Captcha cannot bypass account login requirement.")
                         lead["Emails Found"] = "Sign-in required"
                         success = True
+                        final_status = "sign_in_required"
+                        final_source = "youtube_gate"
                         break
 
                 wait_s = EMAIL_WAIT_SECONDS if has_view_flow else FAST_SKIP_SECONDS
@@ -537,13 +576,20 @@ def scrape_captcha_emails(
                     print(f"Success! Found email: {email}")
                     lead["Emails Found"] = email
                     success = True
+                    final_status = "revealed"
+                    if not final_source:
+                        final_source = "view_email"
                     break
 
                 print(f"No email found on attempt {attempt}.")
+                if has_view_flow and final_status != "sign_in_required":
+                    final_status = "captcha_or_reveal_failed"
                 time.sleep(1)
 
             except Exception as e:
                 print(f"Attempt {attempt} failed ({e}).")
+                final_status = "attempt_failed"
+                final_error = str(e)
                 try:
                     driver.quit()
                 except Exception:
@@ -559,7 +605,16 @@ def scrape_captcha_emails(
         else:
             failed_count += 1
             print("Could not extract email automatically for this channel.")
+            if final_status == "failed":
+                final_status = "not_found"
 
+        _set_reveal_result(
+            lead,
+            final_status,
+            source=final_source,
+            error=final_error,
+            attempts=attempts_used,
+        )
         _save_progress(output_csv, leads)
             
     try:
@@ -571,6 +626,13 @@ def scrape_captcha_emails(
         _save_progress(output_csv, leads)
         print(f"\nSaved updated leads to {output_csv}")
         print(f"Processed: {processed} | Found: {found_count} | Not Found: {failed_count}")
+        status_counts = {}
+        for row in leads:
+            st = (row.get("Reveal Status") or "unknown").strip() or "unknown"
+            status_counts[st] = status_counts.get(st, 0) + 1
+        print("Reveal Status Summary:")
+        for k in sorted(status_counts):
+            print(f"  - {k}: {status_counts[k]}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Scrape hidden CAPTCHA emails for leads missing them.")
