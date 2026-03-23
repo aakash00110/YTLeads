@@ -118,6 +118,19 @@ def _launch_mac_chrome_profile(user_data_dir, profile_dir, debugging_port=9222):
     except Exception:
         return False
 
+def _can_connect_debugger(port=9222, timeout_s=4):
+    deadline = time.time() + timeout_s
+    url = f"http://127.0.0.1:{port}/json/version"
+    while time.time() < deadline:
+        try:
+            r = requests.get(url, timeout=1.5)
+            if r.status_code == 200 and "webSocketDebuggerUrl" in (r.text or ""):
+                return True
+        except Exception:
+            pass
+        time.sleep(0.25)
+    return False
+
 def _macos_google_chrome_binary():
     candidates = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -536,11 +549,14 @@ def scrape_captcha_emails(
                 attach_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
                 if mac_chrome:
                     attach_options.binary_location = mac_chrome
-                try:
-                    print(f"Attaching to existing Chrome debug session for profile: {active_profile_dir}")
-                    return webdriver.Chrome(options=attach_options)
-                except Exception as attach_err:
-                    print(f"Attach mode failed ({attach_err}), falling back to direct launch.")
+                if _can_connect_debugger(port=9222, timeout_s=5):
+                    try:
+                        print(f"Attaching to existing Chrome debug session for profile: {active_profile_dir}")
+                        return webdriver.Chrome(options=attach_options)
+                    except Exception as attach_err:
+                        print(f"Attach mode failed ({attach_err}), falling back to direct launch.")
+                else:
+                    print("Debugger endpoint not ready, falling back to direct launch.")
         if sys.platform == "darwin":
             return webdriver.Chrome(options=options)
         if chromedriver_path:
@@ -618,6 +634,10 @@ def scrape_captcha_emails(
                     print("No signed-in Chrome profile detected. Continuing in current session.")
         except Exception as e:
             print(f"Warning: could not verify YouTube sign-in state ({e}). Continuing run.")
+    try:
+        driver.set_page_load_timeout(30)
+    except Exception:
+        pass
     
     processed = 0
     found_count = 0
