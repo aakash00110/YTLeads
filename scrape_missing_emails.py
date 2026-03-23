@@ -248,7 +248,12 @@ def _is_logged_in_youtube(driver):
     if _is_sign_in_required(driver):
         return False
     try:
-        driver.find_element(By.XPATH, "//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'sign in')]")
+        driver.find_element(By.CSS_SELECTOR, "button#avatar-btn")
+        return True
+    except Exception:
+        pass
+    try:
+        driver.find_element(By.XPATH, "//a[contains(@href, 'ServiceLogin') or contains(@href, 'signin')]")
         return False
     except Exception:
         return True
