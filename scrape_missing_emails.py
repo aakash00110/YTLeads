@@ -23,6 +23,16 @@ EMAIL_WAIT_SECONDS = int(os.environ.get("EMAIL_WAIT_SECONDS", "10"))
 CAPTCHA_WAIT_SECONDS = int(os.environ.get("CAPTCHA_WAIT_SECONDS", "20"))
 MAX_ATTEMPTS_PER_CHANNEL = int(os.environ.get("MAX_ATTEMPTS_PER_CHANNEL", "2"))
 
+def _macos_google_chrome_binary():
+    candidates = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
 def is_valid_email(email):
     if not email or '@' not in email:
         return False
@@ -330,14 +340,32 @@ def scrape_captcha_emails(
         if profile_directory:
             print(f"Using Chrome profile-directory: {profile_directory}")
             options.add_argument(f"--profile-directory={profile_directory}")
+        if sys.platform == "darwin":
+            lock_candidates = [
+                os.path.join(profile_user_data_dir, "SingletonLock"),
+                os.path.join(profile_user_data_dir, "SingletonCookie"),
+                os.path.join(profile_user_data_dir, "SingletonSocket"),
+            ]
+            if any(os.path.exists(p) for p in lock_candidates):
+                print("Chrome appears to be running (profile lock detected). Close all Chrome windows and retry.")
+                return
     else:
         user_data_dir = tempfile.mkdtemp(prefix="chrome-user-data-")
         print(f"Using temporary Chrome profile: {user_data_dir}")
         options.add_argument(f'--user-data-dir={user_data_dir}')
 
     chromium_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
-    if chromium_path:
+    if sys.platform == "darwin":
+        mac_chrome = _macos_google_chrome_binary()
+        if mac_chrome:
+            options.binary_location = mac_chrome
+            print(f"Using browser binary: {mac_chrome}")
+        elif chromium_path:
+            options.binary_location = chromium_path
+            print(f"Using browser binary: {chromium_path}")
+    elif chromium_path:
         options.binary_location = chromium_path
+        print(f"Using browser binary: {chromium_path}")
 
     chromedriver_candidates = [
         shutil.which("chromedriver"),
@@ -348,6 +376,8 @@ def scrape_captcha_emails(
     chromedriver_path = next((p for p in chromedriver_candidates if p and os.path.exists(p)), None)
 
     def start_driver():
+        if sys.platform == "darwin":
+            return webdriver.Chrome(options=options)
         if chromedriver_path:
             service = Service(chromedriver_path)
             return webdriver.Chrome(service=service, options=options)
