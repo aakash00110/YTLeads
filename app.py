@@ -56,6 +56,16 @@ def detect_last_used_chrome_profile():
     except Exception:
         return "Default"
 
+def detect_default_chrome_user_data_dir():
+    candidates = [
+        os.path.expanduser("~/Library/Application Support/Google/Chrome"),
+        os.path.expanduser("~/Library/Application Support/Chromium"),
+    ]
+    for c in candidates:
+        if os.path.isdir(c):
+            return c
+    return ""
+
 def run_email_reveal_bot(
     twocaptcha_key,
     input_csv="leads.csv",
@@ -113,12 +123,12 @@ with st.sidebar:
     chrome_user_data_dir = st.text_input(
         "Chrome User Data Dir",
         value=st.session_state.get("chrome_user_data_dir", "") or os.environ.get("CHROME_USER_DATA_DIR", ""),
-        help="Example on macOS: /Users/yourname/Library/Application Support/Google/Chrome",
+        help="Leave blank to auto-detect on macOS.",
     )
     chrome_profile_dir = st.text_input(
         "Chrome Profile Dir",
         value=st.session_state.get("chrome_profile_dir", "") or os.environ.get("CHROME_PROFILE_DIR", "") or detect_last_used_chrome_profile(),
-        help="Examples: Default, Profile 1, Profile 2",
+        help="Leave blank to auto-detect last used profile.",
     )
     st.session_state["chrome_user_data_dir"] = chrome_user_data_dir
     st.session_state["chrome_profile_dir"] = chrome_profile_dir
@@ -235,10 +245,12 @@ with tab2:
                 if not twocaptcha_key:
                     st.error("⚠️ Please enter your 2Captcha API Key in the sidebar before starting Step 2.")
                     st.stop()
-                profile_user_data_dir = st.session_state.get("chrome_user_data_dir", "").strip()
-                profile_dir = st.session_state.get("chrome_profile_dir", "").strip()
+                profile_user_data_dir = st.session_state.get("chrome_user_data_dir", "").strip() or detect_default_chrome_user_data_dir()
+                profile_dir = st.session_state.get("chrome_profile_dir", "").strip() or detect_last_used_chrome_profile()
+                st.session_state["chrome_user_data_dir"] = profile_user_data_dir
+                st.session_state["chrome_profile_dir"] = profile_dir
                 if not profile_user_data_dir or not profile_dir:
-                    st.error("⚠️ Signed-in profile is required. Please set both Chrome User Data Dir and Chrome Profile Dir.")
+                    st.error("⚠️ Could not auto-detect a Chrome profile. Please set Chrome User Data Dir and Chrome Profile Dir.")
                     st.stop()
                 if not os.path.isdir(profile_user_data_dir):
                     st.error(f"⚠️ Chrome User Data Dir not found: {profile_user_data_dir}")
@@ -246,6 +258,7 @@ with tab2:
                 if not os.path.isdir(os.path.join(profile_user_data_dir, profile_dir)):
                     st.error(f"⚠️ Chrome profile folder not found: {os.path.join(profile_user_data_dir, profile_dir)}")
                     st.stop()
+                st.info(f"Using signed-in Chrome profile: {profile_dir}")
                 st.info("🤖 2Captcha key detected. Running auto reveal...")
                 spinner_text = "Bot is running... moving channel by channel."
                 
