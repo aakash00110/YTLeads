@@ -8,6 +8,8 @@ import io
 import json
 from youtube_lead_extractor import get_channel_leads
 
+APP_BUILD = "2026-03-23-b930a27"
+
 # Set page config
 st.set_page_config(page_title="YouTube Lead Extractor", page_icon="▶️", layout="wide")
 
@@ -106,6 +108,7 @@ def run_email_reveal_bot(
 # Sidebar for Settings
 with st.sidebar:
     st.header("⚙️ Settings")
+    st.caption(f"Build: {APP_BUILD}")
     api_key_input = st.text_input(
         "YouTube Data API v3 Key",
         type="password",
@@ -153,6 +156,28 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### How to use:")
     st.markdown("1. Enter your API Key above.\n2. Use **Step 1** to upload your CSV/TXT file with channel links.\n3. Use **Step 2** with 2Captcha to reveal hidden emails and download updated list.")
+    st.markdown("---")
+    if st.button("Reset App State", key="reset_app_state"):
+        for p in ["leads.csv", "leads_updated.csv", "leads_success_only.csv"]:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+        try:
+            if os.path.isdir("temp_uploads"):
+                for fn in os.listdir("temp_uploads"):
+                    fp = os.path.join("temp_uploads", fn)
+                    if os.path.isfile(fp):
+                        os.remove(fp)
+        except Exception:
+            pass
+        for k in list(st.session_state.keys()):
+            if k not in ("api_key", "twocaptcha_key"):
+                del st.session_state[k]
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.success("State cleared. Refresh page once.")
 
 # Check for API Key
 api_key = st.session_state.get("api_key", "")
